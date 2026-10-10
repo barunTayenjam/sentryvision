@@ -23,6 +23,11 @@ jest.unstable_mockModule('../middleware/auth.js', () => ({
     req.user = { id: 'user-1', role: 'user' };
     next();
   },
+  optionalAuth: (req: any, _res: any, next: any) => next(),
+}));
+
+jest.unstable_mockModule('../database.js', () => ({
+  AppDataSource: { query: jest.fn().mockResolvedValue([]) },
 }));
 
 const { default: reviewRoutes } = await import('./review.js');

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import fs from 'node:fs';
 import { z } from 'zod';
 import { validateBody, validateQuery } from '../middleware/zodValidation.js';
-import { requireUser } from '../middleware/auth.js';
+import { requireUser, optionalAuth } from '../middleware/auth.js';
+import { AppDataSource } from '../database.js';
 import { serviceRegistry } from '../services/serviceRegistry.js';
 import { logger } from '../utils/logger.js';
 
@@ -115,5 +117,29 @@ router.post(
     }
   },
 );
+
+router.get('/segments/:id/thumbnail', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id || !/^rev_[a-zA-Z0-9_-]+_\d+$/.test(id)) {
+      res.status(400).json({ success: false, error: 'Invalid segment ID' });
+      return;
+    }
+    const rows: Array<{ thumbnail_path: string | null }> = await AppDataSource.query(
+      `SELECT thumbnail_path FROM review_segments WHERE id = $1`,
+      [id],
+    );
+    const thumbnailPath = rows[0]?.thumbnail_path;
+    if (!thumbnailPath || !fs.existsSync(thumbnailPath)) {
+      res.status(404).json({ success: false, error: 'Thumbnail not found' });
+      return;
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(thumbnailPath);
+  } catch (error) {
+    logger.error('Failed to serve segment thumbnail', 'ReviewRoutes', error);
+    res.status(500).json({ success: false, error: 'Failed to serve thumbnail' });
+  }
+});
 
 export default router;

@@ -128,5 +128,10 @@
     "method": "GET",
     "path": "/api/streams/health",
     "reason": "public per-camera stream-health probe on the root-mounted static router; no frontend or script caller in repo (documented in API-SOURCE-OF-TRUTH)"
+  },
+  {
+    "method": "GET",
+    "path": "/api/review/segments/*/thumbnail",
+    "reason": "binary image endpoint consumed by <img src> in ReviewPage; the contract extractor only parses fetch/apiClient calls, not img src attributes"
   }
 ]

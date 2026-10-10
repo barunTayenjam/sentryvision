@@ -26,8 +26,9 @@ export interface ReviewFilters {
   reviewed?: boolean;
   after?: string;
   before?: string;
-  limit?: number;
-  offset?: number;
+  limit?: number | string;
+  offset?: number | string;
+  [key: string]: unknown;
 }
 
 export const reviewService = {
