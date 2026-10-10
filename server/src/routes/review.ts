@@ -13,10 +13,7 @@ const ReviewQuerySchema = z.object({
   camera: z.string().regex(/^[a-zA-Z0-9_-]+$/).max(100).optional(),
   severity: z.enum(['alert', 'detection']).optional(),
   labels: z.string().optional(),
-  reviewed: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  reviewed: z.enum(['true', 'false']).optional(),
   after: z.string().datetime().optional(),
   before: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -39,7 +36,7 @@ router.get('/segments', requireUser, validateQuery(ReviewQuerySchema), async (re
     const result = await reviewService.getReviewSegments({
       camera: q.camera,
       severity: q.severity,
-      reviewed: q.reviewed,
+      reviewed: q.reviewed === undefined ? undefined : q.reviewed === 'true',
       labels: q.labels ? q.labels.split(',').filter(Boolean) : undefined,
       after: q.after ? new Date(q.after) : undefined,
       before: q.before ? new Date(q.before) : undefined,

@@ -12,6 +12,22 @@ import NotificationService from '../services/notificationService.js';
 import { VEHICLE_CLASSES } from '../shared/constants.js';
 import { isSceneMemoryEnabled, compareEventToBaseline } from '../services/sceneMemoryService.js';
 import { enqueueRelationJob } from '../services/relationQueue.js';
+import { getMqttService } from '../services/mqttService.js';
+
+function emitMqttEvent(cameraId: string, eventId: string, eventType: string, score: number) {
+  try {
+    getMqttService()?.publishEvent(cameraId, {
+      id: eventId,
+      camera: cameraId,
+      type: eventType,
+      confidence: score,
+      timestamp: new Date().toISOString(),
+    });
+    if (eventType === 'person') getMqttService()?.publishPersonState(cameraId, true);
+  } catch (err) {
+    logger.debug('MQTT publish failed (non-blocking)', 'PIPELINE', err);
+  }
+}
 
 function envNumber(raw: string | undefined, fallback: number): number {
   const parsed = Number(raw);
@@ -269,6 +285,8 @@ export async function persistDetectionEvent(
   event.motion_stats = ev.motionStats ?? null;
 
   await AppDataSource.getRepository(Event).save(event);
+
+  emitMqttEvent(cameraId, event.id, eventTypeStr, score);
 
   try {
     serviceRegistry

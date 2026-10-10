@@ -22,6 +22,7 @@ import { PythonWsClient, TrackingEvent } from '../services/pythonWsClient.js';
 import { persistDetectionEvent } from '../pipeline/detectionPersistence.js';
 import { SceneTracker } from '../pipeline/sceneTracker.js';
 import { BroadcastGate } from '../pipeline/broadcastGate.js';
+import { initMqttService } from '../services/mqttService.js';
 import { TrackDeduplicator } from '../pipeline/trackDeduplicator.js';
 import { ReviewSegment } from '../models/ReviewSegment.js';
 import { UserReviewStatus } from '../models/UserReviewStatus.js';
@@ -329,5 +330,28 @@ export async function initializeServices(io: SocketIOServer): Promise<void> {
     logger.info('Relation queue worker started', 'INIT');
   } catch (error) {
     logger.error('Relation queue worker failed to start (non-critical)', 'INIT', error);
+  }
+
+  if (config.mqtt.enabled) {
+    try {
+      const mqttService = initMqttService({
+        enabled: Boolean(config.mqtt.enabled),
+        host: config.mqtt.host,
+        port: config.mqtt.port ?? 1883,
+        topicPrefix: config.mqtt.topicPrefix ?? 'sentryvision',
+        user: config.mqtt.user,
+        password: config.mqtt.password,
+        qos: (config.mqtt.qos ?? 0) as 0 | 1 | 2,
+      });
+      const cameraIds = config.cameras.map((c: CameraConfig) => c.id);
+      mqttService.publishHADiscovery(cameraIds);
+      for (const cam of config.cameras) {
+        mqttService.publishPersonState(cam.id, false);
+        mqttService.publishCameraStatus(cam.id, 'online');
+      }
+      logger.info(`MQTT publisher started (${cameraIds.length} cameras discovered)`, 'INIT');
+    } catch (error) {
+      logger.error('MQTT publisher failed to start (non-critical)', 'INIT', error);
+    }
   }
 }
