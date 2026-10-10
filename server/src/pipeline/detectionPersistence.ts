@@ -271,6 +271,33 @@ export async function persistDetectionEvent(
   await AppDataSource.getRepository(Event).save(event);
 
   try {
+    serviceRegistry
+      .getReviewService()
+      .upsertSegmentFromEvent({
+        id: event.id,
+        camera_id: event.camera_id,
+        timestamp: event.timestamp,
+        severity: severity === 'info' ? 'info' : severity,
+        event_type: eventTypeStr,
+        file_path: event.file_path,
+        object_detections: sceneDets.map((d) => ({
+          class: d.className,
+          confidence: Math.round(d.score * 100),
+          trackId: d.trackId,
+        })),
+      })
+      .catch((err: unknown) => {
+        logger.warn(
+          `[DetectionPersistence] Review segment upsert failed for ${cameraId}`,
+          'PIPELINE',
+          err,
+        );
+      });
+  } catch (err) {
+    logger.debug('Review segment upsert skipped (service unavailable)', 'PIPELINE', err);
+  }
+
+  try {
     const detRepo = AppDataSource.getRepository(EventDetection);
     const detRows = sceneDets.map((d) => ({
       event_id: event.id,
