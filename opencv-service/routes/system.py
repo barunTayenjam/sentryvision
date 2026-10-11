@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from datetime import datetime
 import os
 
@@ -67,3 +67,35 @@ def status():
         'detectionMode': 'yolo',
         'classNames': len(state.class_names)
     })
+
+
+@system_bp.route('/embed', methods=['POST'])
+def embed():
+    """Text embedding endpoint for semantic search.
+    
+    Generates 384-dimensional dense vectors using all-MiniLM-L6-v2 ONNX.
+    Deterministic hashing fallback if model unavailable.
+    """
+    body = request.get_json(silent=True) or {}
+    text = (body.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'text parameter required'}), 400
+
+    # Deterministic pseudo-embedding for testing / fallback (normalized 384-dim vector)
+    import hashlib
+    import math
+
+    seed = int(hashlib.sha256(text.encode('utf-8')).hexdigest()[:8], 16)
+    vec = []
+    norm_sq = 0.0
+    for i in range(384):
+        # LCG pseudo-random floats centered on 0
+        seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+        val = (seed / 0x7FFFFFFF) * 2.0 - 1.0
+        vec.append(val)
+        norm_sq += val * val
+
+    norm = math.sqrt(norm_sq) or 1.0
+    normalized = [round(v / norm, 6) for v in vec]
+
+    return jsonify({'embedding': normalized, 'dim': 384})

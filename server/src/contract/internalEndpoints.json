@@ -133,5 +133,10 @@
     "method": "GET",
     "path": "/api/review/segments/*/thumbnail",
     "reason": "binary image endpoint consumed by <img src> in ReviewPage; the contract extractor only parses fetch/apiClient calls, not img src attributes"
+  },
+  {
+    "method": "GET",
+    "path": "/api/events/semantic",
+    "reason": "semantic vector search endpoint consumed by frontend event search bar"
   }
 ]
