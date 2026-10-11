@@ -350,6 +350,51 @@ export const eventService = {
     }
   },
 
+  async semanticSearch(
+    query: string,
+    options?: {
+      cameraId?: string;
+      eventType?: string;
+      limit?: number;
+    },
+  ): Promise<{
+    events: Array<
+      EnhancedEvent & {
+        similarity?: number;
+        searchSource?: 'semantic' | 'keyword';
+      }
+    >;
+    total: number;
+    semanticHits: number;
+    keywordHits: number;
+  }> {
+    try {
+      const params = new URLSearchParams({ q: query });
+      if (options?.cameraId) params.append('cameraId', options.cameraId);
+      if (options?.eventType) params.append('eventType', options.eventType);
+      if (options?.limit) params.append('limit', String(options.limit));
+      const response = await fetchWithRetry(
+        `${API_URL}/events/semantic?${params.toString()}`,
+      );
+      const data = await response.json();
+      if (!data.success) {
+        throw new ApiError(
+          data.error || 'Failed to run semantic search',
+          response.status,
+          'SEMANTIC_SEARCH_ERROR',
+          data,
+        );
+      }
+      return data;
+    } catch (error) {
+      console.error('Error running semantic search:', error);
+      if (error instanceof ApiError) throw error;
+      throw new ApiError('Failed to run semantic search', 500, 'SEMANTIC_SEARCH_ERROR', {
+        originalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+
   async getRangeStats(
     startDate: Date,
     endDate: Date,

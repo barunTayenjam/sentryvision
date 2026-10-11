@@ -48,6 +48,27 @@ export function useMotionEvents(limit?: number) {
   });
 }
 
+export function useSemanticEvents(
+  query: string,
+  options?: { cameraId?: string; eventType?: string; limit?: number },
+) {
+  return useQuery({
+    queryKey: ['events', 'semantic', query, options],
+    queryFn: async () => {
+      const response = await eventService.semanticSearch(query, options);
+      const events: MotionEvent[] = response.events.map((e) => mapEnhancedEvent(e));
+      return {
+        events,
+        total: response.total,
+        semanticHits: response.semanticHits,
+        keywordHits: response.keywordHits,
+      };
+    },
+    enabled: !!query,
+    staleTime: 30_000,
+  });
+}
+
 export function useCalendarStats(year: number, month: number, cameraId?: string) {
   return useQuery({
     queryKey: ['calendarStats', year, month, cameraId],

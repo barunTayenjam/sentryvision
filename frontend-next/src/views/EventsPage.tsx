@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useUrlSearchParams } from '@/hooks/useUrlSearchParams';
 import { useToast } from '@/hooks/use-toast';
 import { useCameraStore } from '@/stores/camera';
-import { useEventsList } from '@/hooks/useEvents';
+import { useEventsList, useSemanticEvents } from '@/hooks/useEvents';
 import { MotionEvent, EventRelation, RelationBox, RelationThreat } from '@/types/security';
 import { SmartFilters, FilterState } from '@/components/events/SmartFilters';
 import { EventDetailPanel } from '@/components/events/EventDetailPanel';
@@ -13,7 +13,7 @@ import { RelatedEvents } from '@/components/events/RelatedEvents';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { eventService } from '@/services/api/eventService';
 import { detectionService } from '@/services/api/detectionService';
-import { Calendar, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Calendar, CheckCircle2, AlertTriangle, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { detectionInfo } from '@/lib/detectionMeta';
 import {
@@ -95,20 +95,32 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
   const currentPage = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
   const sortBy = (searchParams.get('sortBy') || 'newest') as SortOption;
   const selectedEventId = searchParams.get('eventId');
+  const searchQuery = (searchParams.get('q') || '').trim();
+  const [searchInput, setSearchInput] = useState(searchQuery);
   const filters = useMemo(() => getFilterFromParams(searchParams), [searchParams]);
 
-  const { data, isLoading, isError, refetch } = useEventsList({
-    page: currentPage,
-    pageSize: 12,
-    camera_id: filters.cameraId === 'all' ? undefined : filters.cameraId,
-    event_type: filters.detectionType === 'all' ? undefined : filters.detectionType,
-    min_confidence: filters.detectionType === 'person' ? PERSON_CONFIDENCE_FLOOR : undefined,
-    start_date: filters.dateRange.start?.toISOString(),
-    end_date: filters.dateRange.end?.toISOString(),
-    sortBy,
+  const { data: listData, isLoading: listLoading, isError: listError, refetch: refetchList } =
+    useEventsList({
+      page: currentPage,
+      pageSize: 12,
+      camera_id: filters.cameraId === 'all' ? undefined : filters.cameraId,
+      event_type: filters.detectionType === 'all' ? undefined : filters.detectionType,
+      min_confidence: filters.detectionType === 'person' ? PERSON_CONFIDENCE_FLOOR : undefined,
+      start_date: filters.dateRange.start?.toISOString(),
+      end_date: filters.dateRange.end?.toISOString(),
+      sortBy,
+    });
+  const { data: semanticData, isLoading: semanticLoading } = useSemanticEvents(searchQuery || '', {
+    cameraId: filters.cameraId === 'all' ? undefined : filters.cameraId,
+    limit: 24,
   });
-  const events = data?.events ?? [];
-  const totalPages = data?.totalPages ?? 1;
+
+  const isSearchMode = searchQuery.length > 0;
+  const isLoading = isSearchMode ? semanticLoading : listLoading;
+  const isError = !isSearchMode && listError;
+  const refetch = refetchList;
+  const events = isSearchMode ? semanticData?.events ?? [] : listData?.events ?? [];
+  const totalPages = listData?.totalPages ?? 1;
 
   useEffect(() => {
     if (isError) toast({ title: 'Error', description: 'Failed to load events', variant: 'destructive' });
@@ -229,6 +241,19 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
     [updateParams],
   );
 
+  const handleSearchSubmit = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      updateParams({ q: trimmed || null, page: null, eventId: null });
+    },
+    [updateParams],
+  );
+
+  const handleSearchClear = useCallback(() => {
+    setSearchInput('');
+    handleSearchSubmit('');
+  }, [handleSearchSubmit]);
+
   const selectedEvent = events.find((e) => e.id === selectedEventId) || null;
 
   const handleAnalyzeEvent = useCallback(
@@ -328,8 +353,35 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
       {!embedded && (
         <header className="shrink-0 border-b border-white/[0.06] bg-card py-4">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-            <h1 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">Events</h1>
-            <Select value={sortBy} onValueChange={(value: SortOption) => handleSortChange(value)}>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">Events</h1>
+              {isSearchMode && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary border border-primary/20">
+                  <Search className="h-3 w-3" />
+                  Semantic
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2">
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearchSubmit(searchInput);
+                  }}
+                  placeholder="Search scenes… e.g. person at night"
+                  className="h-8 w-56 rounded-md bg-white/[0.04] border border-white/[0.10] px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                />
+                <button
+                  onClick={() => handleSearchSubmit(searchInput)}
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Search
+                </button>
+              </div>
+              <Select value={sortBy} onValueChange={(value: SortOption) => handleSortChange(value)}>
               <SelectTrigger className="w-[130px] h-8 rounded-md bg-white/[0.04] border-white/[0.10] text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -345,6 +397,7 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
                 </SelectItem>
               </SelectContent>
             </Select>
+            </div>
           </div>
         </header>
       )}
@@ -356,6 +409,25 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
           <div className="mb-4 border-b border-white/[0.06] pb-3">
             <SmartFilters cameras={cameraList} filters={filters} onFiltersChange={handleFiltersChange} />
           </div>
+
+          {isSearchMode && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2 text-xs">
+              <Search className="h-4 w-4 text-primary" />
+              <span className="text-foreground">
+                Semantic search for <span className="font-medium">&ldquo;{searchQuery}&rdquo;</span>
+                {' — '}
+                <span className="text-muted-foreground">
+                  {semanticData?.semanticHits ?? 0} semantic + {semanticData?.keywordHits ?? 0} keyword hits
+                </span>
+              </span>
+              <button
+                onClick={handleSearchClear}
+                className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <X className="h-3 w-3" /> Clear
+              </button>
+            </div>
+          )}
 
           {isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

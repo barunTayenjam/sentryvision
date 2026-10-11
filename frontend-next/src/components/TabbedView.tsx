@@ -3,18 +3,12 @@
 import { ReactNode, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useUrlSearchParams } from '@/hooks/useUrlSearchParams';
-import { SectionWorkspace } from '@/components/layout/SectionWorkspace';
-
-type Tab = {
-  value: string;
-  label: string;
-  icon: React.ElementType;
-};
+import { SectionWorkspace, SectionTab } from '@/components/layout/SectionWorkspace';
 
 export interface TabbedViewProps {
   title: string;
   description: string;
-  tabs: Tab[];
+  tabs: SectionTab[];
   defaultTab?: string;
   children: (activeTab: string) => ReactNode;
 }
@@ -42,8 +36,8 @@ export function TabbedView({ title, description, tabs, defaultTab, children }: T
     <SectionWorkspace
       title={title}
       description={description}
-      tabs={tabs as any}
-      defaultTab={fallbackTab}
+      tabs={tabs}
+      defaultTab={activeTab}
       onTabChange={handleTabChange}
     >
       {children}
