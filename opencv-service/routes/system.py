@@ -72,30 +72,37 @@ def status():
 @system_bp.route('/embed', methods=['POST'])
 def embed():
     """Text embedding endpoint for semantic search.
-    
-    Generates 384-dimensional dense vectors using all-MiniLM-L6-v2 ONNX.
-    Deterministic hashing fallback if model unavailable.
+
+    384-dim all-MiniLM-L6-v2 ONNX vectors; deterministic hash fallback when
+    the model files are absent (constrained hosts).
     """
     body = request.get_json(silent=True) or {}
     text = (body.get('text') or '').strip()
     if not text:
         return jsonify({'error': 'text parameter required'}), 400
 
-    # Deterministic pseudo-embedding for testing / fallback (normalized 384-dim vector)
-    import hashlib
-    import math
+    try:
+        from embedder import get_embedder
 
-    seed = int(hashlib.sha256(text.encode('utf-8')).hexdigest()[:8], 16)
-    vec = []
-    norm_sq = 0.0
-    for i in range(384):
-        # LCG pseudo-random floats centered on 0
-        seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
-        val = (seed / 0x7FFFFFFF) * 2.0 - 1.0
-        vec.append(val)
-        norm_sq += val * val
+        embedder = get_embedder()
+        if not embedder.loaded:
+            embedder.load()
+        return jsonify({'embedding': embedder.embed(text), 'dim': 384, 'model': 'minilm-l6-v2'})
+    except Exception as e:
+        # Hash fallback — stable per text, uncalibrated semantics.
+        import hashlib
+        import math
 
-    norm = math.sqrt(norm_sq) or 1.0
-    normalized = [round(v / norm, 6) for v in vec]
+        seed = int(hashlib.sha256(text.encode('utf-8')).hexdigest()[:8], 16)
+        vec = []
+        norm_sq = 0.0
+        for i in range(384):
+            seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+            val = (seed / 0x7FFFFFFF) * 2.0 - 1.0
+            vec.append(val)
+            norm_sq += val * val
 
-    return jsonify({'embedding': normalized, 'dim': 384})
+        norm = math.sqrt(norm_sq) or 1.0
+        normalized = [round(v / norm, 6) for v in vec]
+
+        return jsonify({'embedding': normalized, 'dim': 384, 'model': 'hash-fallback'})

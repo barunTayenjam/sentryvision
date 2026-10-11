@@ -21,7 +21,7 @@ import {
   resolveRange,
   rangeTokenSchema,
 } from './dateResolver.js';
-import { collectReportStats, reportMarkdown, reportTables } from './reportGenerator.js';
+import { collectReportScenes, collectReportStats, reportMarkdown, reportTables } from './reportGenerator.js';
 
 const TOOLS_PROMPT = `You classify a home-security camera question into one of four tools and return ONLY JSON: {"tool": string, "params": object}.
 
@@ -407,23 +407,40 @@ export async function runClassifiedChat(
   const parsed = periodReportParamsSchema.safeParse(classified.params);
   if (!parsed.success) throw new ChatError('Missing/invalid report params', 422);
   const stats = await collectReportStats({ from: range.from, to: range.to, camera: parsed.data.camera });
+  const scenes = await collectReportScenes({ from: range.from, to: range.to, camera: parsed.data.camera });
   const tables = reportTables(stats);
   let narrative = '';
   if (stats.totals.events > 0) {
     try {
+      const sceneLines = scenes.slice(0, 6).map((s) => {
+        const time = s.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+        const rel = s.relations.slice(0, 3).map((r) => `${r.subject} ${r.predicate} ${r.object}`).join('; ');
+        return `${time} on ${s.camera}${s.description ? `: ${s.description}` : rel ? ` (${rel})` : ''}`;
+      });
       const statsJson = JSON.stringify(stats);
       const narration = await chatLlm(
-        `Write a 4-8 sentence plain-language summary of the detection statistics. Use ONLY the numbers given — do not compute, estimate, or invent any value. If a number appears in your text it must appear in the JSON input. Do not mention the camera system internals. Output markdown prose only, no headings, no lists.`,
-        `Statistics: ${statsJson}`,
+        `Write a 4-8 sentence plain-language summary of what happened based on the statistics and scene highlights below. Use ONLY the numbers given — do not compute, estimate, or invent any value. If a number appears in your text it must appear in the JSON input. Describe the scene highlights in your own words but stay faithful — do not invent objects or events. Do not mention the camera system internals. Output markdown prose only, no headings, no lists.`,
+        `Statistics: ${statsJson}\n\nScene highlights (most recent first):\n${sceneLines.join('\n') || '(none)'}`,
         { maxTokens: 500 },
       );
-      const safe = stripUnverifiedNumbers(narration, statsJson).trim();
+      const safe = stripUnverifiedNumbers(narration, statsJson + sceneLines.join(' ')).trim();
       if (safe) narrative = safe;
     } catch (err) {
       logger.warn('Report narrative generation failed, using numbers only', 'CHAT', err);
     }
   }
-  const body = reportMarkdown(stats) + (narrative ? `\n\n${narrative}` : '');
+  const sceneSection =
+    scenes.length > 0
+      ? `\n\n## Highlights\n${scenes
+          .slice(0, 6)
+          .map((s) => {
+            const time = s.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+            const rel = s.relations.slice(0, 3).map((r) => `${r.subject} ${r.predicate} ${r.object}`).join('; ');
+            return `- **${time} ${s.camera}**${s.description ? ` — ${s.description}` : rel ? ` — ${rel}` : ''}`;
+          })
+          .join('\n')}`
+      : '';
+  const body = reportMarkdown(stats) + (narrative ? `\n\n${narrative}` : '') + sceneSection;
   return {
     tool,
     params: { range: range.label, camera: parsed.data.camera ?? null },

@@ -71,6 +71,27 @@ MODELS = {
         'required': False
     },
 
+    # all-MiniLM-L6-v2 INT8 ONNX (384-dim text embeddings) — semantic search
+    # over events. Served by /embed; falls back to hash vectors when absent.
+    'minilm_l6_int8.onnx': {
+        'urls': [
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
+        ],
+        'description': 'all-MiniLM-L6-v2 INT8 ONNX - 384-dim sentence embeddings',
+        'size_mb': 23.0,
+        'required': False
+    },
+
+    # Tokenizer for the MiniLM embedder (HuggingFace tokenizers format)
+    'minilm_tokenizer.json': {
+        'urls': [
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+        ],
+        'description': 'MiniLM tokenizer.json (wordpiece, 256 token limit)',
+        'size_mb': 0.7,
+        'required': False
+    },
+
     # YOLOv5n ONNX - Good alternative
     'yolov5n.onnx': {
         'urls': [

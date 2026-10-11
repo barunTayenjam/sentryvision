@@ -25,6 +25,7 @@ const getArg = (name, fallback) => {
   const i = args.indexOf(name);
   return i >= 0 && args[i + 1] ? parseInt(args[i + 1], 10) : fallback;
 };
+const FORCE = args.includes('--force'); // re-embed everything (model changed)
 const BATCH = getArg('--batch', 50);
 const TOTAL_LIMIT = getArg('--limit', Infinity);
 const EMBED_URL = process.env.EMBEDDER_SERVICE_URL || 'http://localhost:8084/embed';
@@ -77,11 +78,12 @@ async function main() {
   });
   await client.connect();
 
+  const nullCond = FORCE ? 'TRUE' : 'scene_embedding IS NULL';
   const { rows: totalRows } = await client.query(
-    `SELECT COUNT(*)::int AS c FROM events WHERE scene_embedding IS NULL`,
+    `SELECT COUNT(*)::int AS c FROM events WHERE ${nullCond}`,
   );
   let remaining = Math.min(totalRows[0].c, TOTAL_LIMIT);
-  console.log(`Events missing embeddings: ${totalRows[0].c}; will process ${remaining}`);
+  console.log(`Events to embed: ${totalRows[0].c}${FORCE ? ' (force re-embed)' : ''}; will process ${remaining}`);
 
   let done = 0, failed = 0;
   while (remaining > 0) {
@@ -90,7 +92,7 @@ async function main() {
       `SELECT id, event_type, camera_id, timestamp, confidence,
               persons_detected, faces_detected, object_detections, metadata
        FROM events
-       WHERE scene_embedding IS NULL
+       WHERE ${nullCond}
        ORDER BY timestamp DESC
        LIMIT $1`,
       [limit],

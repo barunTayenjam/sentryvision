@@ -125,7 +125,8 @@ describe('semanticSearchTool', () => {
     expect(tables).toHaveLength(0);
     expect(images).toHaveLength(0);
     expect(evidence.events).toBe(0);
-    expect(evidence.window).toBe('no matches');
+    expect(evidence.detections).toBe(0);
+    expect(evidence.cameras).toEqual([]);
   });
 
   it('still returns base hits when relation/detection enrichment fails', async () => {

@@ -159,6 +159,49 @@ export async function collectReportStats(w: Window): Promise<ReportStats> {
   };
 }
 
+export interface ReportScene {
+  id: string;
+  camera: string;
+  timestamp: Date;
+  description: string | null;
+  relations: Array<{ subject: string; predicate: string; object: string; score?: number }>;
+}
+
+export async function collectReportScenes(w: Window, limit = 8): Promise<ReportScene[]> {
+  try {
+    const values: unknown[] = [w.from, w.to];
+    let cameraCond = '';
+    if (w.camera) {
+      values.push(w.camera);
+      cameraCond = `AND e.camera_id = $${values.length}`;
+    }
+    const rows = (await AppDataSource.query(
+      `SELECT e.id::text AS id, e.camera_id, e.timestamp,
+              a.scene_description,
+              e.relations
+       FROM events e
+       LEFT JOIN ai_analysis_results a ON a.event_id = e.id::text
+       WHERE e.timestamp >= $1 AND e.timestamp < $2
+         AND (a.scene_description IS NOT NULL OR
+              (e.relations IS NOT NULL AND jsonb_array_length(e.relations) > 0))
+         ${cameraCond}
+       ORDER BY e.timestamp DESC
+       LIMIT ${limit}`,
+      values,
+    )) as Array<Record<string, unknown>>;
+
+    return rows.map((r) => ({
+      id: String(r.id),
+      camera: String(r.camera_id ?? '?'),
+      timestamp: new Date(r.timestamp as Date),
+      description: typeof r.scene_description === 'string' ? r.scene_description : null,
+      relations: Array.isArray(r.relations) ? (r.relations as ReportScene['relations']) : [],
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function fmtL(t: Date): string {
   return t.toLocaleString('en-IN', {
     timeZone: IST,
