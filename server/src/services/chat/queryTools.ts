@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AppDataSource } from '../../database.js';
 import { rangeTokenSchema } from './dateResolver.js';
 import { VEHICLE_CLASSES } from '../../shared/constants.js';
+import eventSearchService from '../../services/eventSearchService.js';
 
 // Class vocabulary is stock COCO. User-facing vehicle names alias onto it.
 export const ALIAS_MAP: Record<string, string[]> = {
@@ -715,5 +716,127 @@ export async function humanCounts(
       sessions: sessions.length,
       tracks: trackSpans.length,
     },
+  };
+}
+
+// ── semantic_search: free-text scene similarity over events ──
+
+export const semanticSearchParamsSchema = z.object({
+  query: z.string().min(1).max(500),
+  camera: z.string().nullable().optional(),
+  limit: z.number().int().min(1).max(10).default(5),
+});
+
+export type SemanticSearchParams = z.infer<typeof semanticSearchParamsSchema>;
+
+export interface SemanticSearchHit {
+  id: string;
+  eventType: string;
+  timestamp: string | Date;
+  cameraId: string;
+  confidence: number;
+  personsDetected: number;
+  facesDetected: number;
+  objectDetections: Array<{ class?: string; confidence?: number }>;
+  faceDetections: Array<unknown>;
+  imageUrl: string | null;
+  similarity?: number;
+  searchSource?: 'semantic' | 'keyword';
+}
+
+/**
+ * Free-text scene search: delegates to the eventSearchService hybrid
+ * (pgvector cosine ∪ keyword fallback), then enriches each hit from the DB
+ * (relations, full detections, analysis) so Ask answers carry everything
+ * the `/events` page knows about the event.
+ */
+export async function semanticSearchTool(params: {
+  query: string;
+  camera: string | null;
+  limit: number;
+}): Promise<{
+  tables: import('../../types/chat.js').ChatTable[];
+  evidence: import('../../types/chat.js').ToolEvidence;
+  images: import('../../types/chat.js').ChatImage[];
+}> {
+  const result = await eventSearchService.semanticSearch(params.query, {
+    cameraId: params.camera ?? undefined,
+    limit: params.limit,
+  });
+
+  const hits = (result.events ?? []) as SemanticSearchHit[];
+  if (hits.length === 0) {
+    return {
+      tables: [],
+      evidence: { detections: 0, events: 0, cameras: [] },
+      images: [],
+    };
+  }
+
+  const ids = new Set(hits.map((h) => h.id));
+
+  // Enrichment: full object detections + relations per hit. Never fatal —
+  // the base hybrid hits already answer the question.
+  let enrich: Map<string, { relations: unknown; details: unknown }> = new Map();
+  try {
+    const [detailRows, relationRows] = await Promise.all([
+      AppDataSource.query(
+        `SELECT id::text AS id, object_detections, face_detections, persons_detected, faces_detected, known_faces_count
+         FROM events WHERE id = ANY($1::uuid[])`,
+        [[...ids]],
+      ),
+      AppDataSource.query(
+        `SELECT id::text AS id, relations, detection_summary, threat_assessment
+         FROM events WHERE id = ANY($1::uuid[])`,
+        [[...ids]],
+      ),
+    ]);
+    for (const id of ids) {
+      enrich.set(id, {
+        relations: relationRows.find((r: Record<string, unknown>) => r.id === id) ?? null,
+        details: detailRows.find((r: Record<string, unknown>) => r.id === id) ?? null,
+      });
+    }
+  } catch {
+    // enrichment unavailable — base hits still stand
+  }
+
+  const sorted = [...hits].sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  const images: import('../../types/chat.js').ChatImage[] = [];
+  for (const h of sorted.slice(0, 6)) {
+    if (h.imageUrl) {
+      images.push({
+        url: h.imageUrl,
+        caption: `${h.cameraId} · ${fmtIstTime(h.timestamp)} · ${Math.round((h.similarity ?? 0) * 100)}%`,
+      });
+    }
+  }
+
+  const objLabel = (h: SemanticSearchHit) => {
+    const classes = [...new Set((h.objectDetections ?? []).map((d) => d.class).filter(Boolean))];
+    return classes.length > 0 ? classes.join(', ') : h.eventType;
+  };
+
+  return {
+    tables: [
+      {
+        caption: `Semantic matches for "${params.query}" (cosine-ranked)`,
+        headers: ['When (IST)', 'Camera', 'Objects', 'Similarity', 'Source'],
+        rows: sorted.map((h) => [
+          fmtIstTime(h.timestamp),
+          h.cameraId,
+          objLabel(h),
+          `${Math.round((h.similarity ?? 0) * 100)}%`,
+          h.searchSource ?? 'semantic',
+        ]),
+      },
+    ],
+    evidence: {
+      detections: hits.length,
+      events: hits.length,
+      cameras: [...new Set(hits.map((h) => String(h.cameraId ?? '')).filter(Boolean))],
+    },
+    images,
   };
 }

@@ -10,6 +10,8 @@ import {
   humanCountsParamsSchema,
   periodReportParamsSchema,
   resolveVehicleClasses,
+  semanticSearchParamsSchema,
+  semanticSearchTool,
   vehicleTimeline,
   vehicleTimelineParamsSchema,
 } from './queryTools.js';
@@ -47,7 +49,10 @@ Tools:
 6. tool="anomalies" — question asks about unusual activity, spikes, sudden surges, quiet days, outages, gaps, or a camera being down/no detections.
    params: { "range": same as above, "camera": string|null }
 
-7. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
+7. tool="semantic_search" — the user describes a SCENE or MOMENT to find (e.g. "someone at the gate at night", "a car parked in the driveway", "dog in the yard", "person carrying something", "show me when the package arrived"). Use this when the question asks to find/locate/show specific events matching a description rather than count or summarize. Pass the user's descriptive phrase VERBATIM as "query" — do not rephrase it.
+   params: { "query": string, "camera": string|null, "limit": int (1-10, default 5) }
+
+8. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
 
 Accuracy rules — MANDATORY:
 - Never invent dates, times, counts, camera names, or vehicle classes.
@@ -80,6 +85,7 @@ const classificationSchema = z.object({
     'camera_activity',
     'event_correlation',
     'anomalies',
+    'semantic_search',
     'fallback',
   ]),
   params: z.record(z.unknown()),
@@ -167,6 +173,39 @@ export async function runClassifiedChat(
   const tool = classified.tool;
 
   if (tool === 'fallback') return answerFallback(trimmed, history);
+
+  // semantic_search needs no time range — hits span the whole archive.
+  if (tool === 'semantic_search') {
+    const parsed = semanticSearchParamsSchema.safeParse(classified.params);
+    if (!parsed.success) throw new ChatError('Missing/invalid semantic search params', 422);
+    const { tables, evidence, images } = await semanticSearchTool({
+      query: parsed.data.query,
+      camera: parsed.data.camera ?? null,
+      limit: parsed.data.limit,
+    });
+    const rows = tables[0]?.rows ?? [];
+    const windowLabel = `${evidence.events} matches (${evidence.detections} hits)`;
+    const lines: string[] = [];
+    if (rows.length === 0) {
+      lines.push(`Nothing in the archive matches "${parsed.data.query}". Try describing the scene differently — object, place, or time of day.`);
+    } else {
+      lines.push(`## Found ${rows.length} match${rows.length === 1 ? '' : 'es'} for "${parsed.data.query}"`);
+      lines.push('');
+      for (const r of rows) {
+        lines.push(`- **${r[0]}** on ${r[1]} — ${r[2]} (${r[3]} match, ${r[4]})`);
+      }
+      lines.push('');
+      lines.push('Full detail (relations, verification, AI analysis) on each event card in Events.');
+    }
+    return {
+      tool,
+      params: { query: parsed.data.query, camera: parsed.data.camera ?? null, limit: parsed.data.limit },
+      answer: { type: 'markdown', content: lines.join('\n') },
+      tables,
+      evidence: { ...evidence, window: windowLabel },
+      images,
+    };
+  }
 
   const range = resolveParamsRange(classified.params);
 
