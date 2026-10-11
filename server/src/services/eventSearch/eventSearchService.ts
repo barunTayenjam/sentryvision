@@ -3,6 +3,7 @@ import { AppDataSource } from '../../database.js';
 import { Event } from '../../models/Event.js';
 import { DetectionDataNormalizer } from '../../utils/detectionDataNormalizer.js';
 import { serviceRegistry } from '../serviceRegistry.js';
+import { getOpenCVClient } from '../opencvMicroserviceClient.js';
 import type {
   EventSearchFilters,
   EventSearchResponse,
@@ -832,24 +833,6 @@ export class EventSearchService {
   }
 
   private async getEmbedding(text: string): Promise<number[] | null> {
-    try {
-      const embedderUrl = process.env.OPENCV_SERVICE_URL
-        ? `${process.env.OPENCV_SERVICE_URL}/embed`
-        : 'http://opencv:8084/embed';
-      const res = await fetch(embedderUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Token': process.env.OPENCV_API_TOKEN || '',
-        },
-        body: JSON.stringify({ text }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.embedding || null;
-    } catch {
-      return null;
-    }
+    return getOpenCVClient().getEmbedding(text);
   }
 }

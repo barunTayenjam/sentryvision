@@ -1,10 +1,7 @@
 'use client';
 
-import { useCallback } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { useUrlSearchParams } from '@/hooks/useUrlSearchParams';
 import { FileText, SlidersHorizontal } from 'lucide-react';
-import { SectionWorkspace } from '@/components/layout/SectionWorkspace';
+import { TabbedView } from '@/components/TabbedView';
 import SettingsPage from '@/views/Settings';
 import LogsPage from '@/views/LogsPage';
 
@@ -14,30 +11,14 @@ const tabs = [
 ];
 
 export default function SettingsHub() {
-  const searchParams = useUrlSearchParams();
-  const router = useRouter();
-  const pathname = usePathname() ?? '/';
-  const defaultTab = searchParams.get('view') === 'logs' ? 'logs' : 'configuration';
-
-  const handleTabChange = useCallback(
-    (value: string) => {
-      const next = new URLSearchParams(searchParams);
-      if (value === 'logs') next.set('view', 'logs');
-      else next.delete('view');
-      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
-
   return (
-    <SectionWorkspace
+    <TabbedView
       title="Settings"
       description="Configure detection, notifications, storage, and system access."
       tabs={tabs}
-      defaultTab={defaultTab}
-      onTabChange={handleTabChange}
+      defaultTab="configuration"
     >
       {(tab) => (tab === 'logs' ? <LogsPage /> : <SettingsPage />)}
-    </SectionWorkspace>
+    </TabbedView>
   );
 }

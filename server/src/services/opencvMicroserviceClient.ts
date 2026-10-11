@@ -30,6 +30,11 @@ export interface OpenCVServiceStatus {
   service: string;
 }
 
+export interface EmbeddingResult {
+  embedding: number[];
+  dim: number;
+}
+
 export class OpenCVMicroserviceClient {
   private client: AxiosInstance;
   private serviceUrl: string;
@@ -237,6 +242,24 @@ export class OpenCVMicroserviceClient {
       }
     }
     return false;
+  }
+
+  /**
+   * Text embedding for semantic search (all-MiniLM-L6-v2 384-dim, /embed).
+   * Returns null when the embedder is unavailable — callers fall back to
+   * keyword search instead of failing the request.
+   */
+  async getEmbedding(text: string): Promise<number[] | null> {
+    try {
+      const response = await this.breaker.execute(() =>
+        this.client.post('/embed', { text }, { timeout: 5000 }),
+      );
+      const data = response.data as EmbeddingResult;
+      return Array.isArray(data?.embedding) && data.embedding.length > 0 ? data.embedding : null;
+    } catch (error) {
+      logger.warn('OpenCV Microservice: Embedding request failed', 'OpenCVClient', error);
+      return null;
+    }
   }
 
   /**
