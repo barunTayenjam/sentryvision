@@ -17,15 +17,19 @@ import { stripUnverifiedNumbers } from '../chatService.js';
 
 describe('classifyTrack', () => {
   it('labels ended/lost tracks as left', () => {
-    expect(classifyTrack('started', 'ended')).toBe('left');
+    expect(classifyTrack('new', 'lost')).toBe('left');
     expect(classifyTrack(null, 'lost')).toBe('left');
   });
   it('labels started tracks as returned', () => {
-    expect(classifyTrack('started', 'updated')).toBe('returned');
+    expect(classifyTrack('new', 'tracked')).toBe('returned');
   });
   it('labels unknown states as observed', () => {
     expect(classifyTrack(null, null)).toBe('observed');
-    expect(classifyTrack('updated', 'updated')).toBe('observed');
+    expect(classifyTrack('tracked', 'tracked')).toBe('observed');
+  });
+  it('keeps legacy states working for older rows', () => {
+    expect(classifyTrack('started', 'ended')).toBe('left');
+    expect(classifyTrack('started', 'updated')).toBe('returned');
   });
 });
 

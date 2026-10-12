@@ -60,7 +60,7 @@ export async function collectReportStats(w: Window): Promise<ReportStats> {
     `SELECT sub.class,
             SUM(sub.detections) AS detections,
             COUNT(*) AS tracks,
-            COUNT(*) FILTER (WHERE sub.first_state = 'started') AS arrived,
+            COUNT(*) FILTER (WHERE sub.first_state IN ('started','new')) AS arrived,
             COUNT(*) FILTER (WHERE sub.last_state IN ('ended','lost')) AS left
      FROM (
        SELECT ed.class, ed.camera_id, ed.track_id,

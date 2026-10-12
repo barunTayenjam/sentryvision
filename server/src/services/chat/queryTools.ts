@@ -127,13 +127,14 @@ export function resolveVehicleClasses(vehicle: string): string[] {
   return mapped ?? [];
 }
 
-/** Pure classification shared with the unit test. */
+/** Pure classification shared with the unit test. Tracker states are
+ *  new/tracked/lost; legacy rows may carry started/updated/ended. */
 export function classifyTrack(
   firstState: string | null,
   lastState: string | null,
 ): 'returned' | 'left' | 'observed' {
   if (lastState === 'ended' || lastState === 'lost') return 'left';
-  if (firstState === 'started') return 'returned';
+  if (firstState === 'started' || firstState === 'new') return 'returned';
   return 'observed';
 }
 
