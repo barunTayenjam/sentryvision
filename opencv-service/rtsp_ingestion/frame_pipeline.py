@@ -96,8 +96,10 @@ class OrtRunner:
         if _ort is None or not os.path.exists(model_path):
             return
         try:
+            opts = _ort.SessionOptions()
+            opts.intra_op_num_threads = 2
             self._session = _ort.InferenceSession(
-                model_path, providers=["CPUExecutionProvider"]
+                model_path, providers=["CPUExecutionProvider"], sess_options=opts
             )
             self._input_name = self._session.get_inputs()[0].name
         except Exception:
@@ -811,7 +813,7 @@ class FramePipeline:
         self._verify_cache: dict = {}
         self._person_attrs_cache: dict = {}
         self._person_attrs_ttl = float(os.getenv("PERSON_ATTRS_TTL", "5.0"))
-        self._yolo_min_interval = float(os.getenv("YOLO_MIN_INTERVAL_MS", "1000")) / 1000.0
+        self._yolo_min_interval = float(os.getenv("YOLO_MIN_INTERVAL_MS", "2000")) / 1000.0
         self._last_yolo_time = 0.0
         self._yolo_max_input_width = int(os.getenv("YOLO_MAX_INPUT_WIDTH", "1280"))
         self._person_min_hits = int(os.getenv("PERSON_MIN_TRACK_HITS", "3"))

@@ -179,6 +179,12 @@ services:
       - QAT_AUX=${QAT_AUX:-coco_qat}
       - OMP_NUM_THREADS=2
       - OPENCV_NUM_THREADS=2
+      # Resource discipline (added for the load fix): ORT sessions are
+      # intra-op capped at 2 threads in code (OrtRunner + MiniLM embedder) so
+      # inference cannot fan out across all 12 host cores; YOLO re-run gap
+      # raised to 2s so motion storms (e.g. parked truck) skip duplicate
+      # inference instead of burning a full pass per detection frame.
+      - YOLO_MIN_INTERVAL_MS=${YOLO_MIN_INTERVAL_MS:-2000}
     devices:
       - /dev/dri:/dev/dri
     volumes:
