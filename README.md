@@ -3,17 +3,17 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/barunTayenjam/casa-visitor-guardian?style=for-the-badge&label=Version&color=00D4AA" alt="Version" />
-  <img src="https://img.shields.io/github/license/barunTayenjam/casa-visitor-guardian?style=for-the-badge&color=2E8B57" alt="License" />
+  <img src="https://img.shields.io/github/v/release/barunTayenjam/sentryvision?style=for-the-badge&label=Version&color=00D4AA" alt="Version" />
+  <img src="https://img.shields.io/github/license/barunTayenjam/sentryvision?style=for-the-badge&color=2E8B57" alt="License" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker" alt="Docker Ready" />
   <img src="https://img.shields.io/badge/Self--Hosted-100%25-FF6B35?style=for-the-badge" alt="Self-Hosted" />
   <img src="https://img.shields.io/badge/Cloud--Free-Yes-28A745?style=for-the-badge" alt="Cloud Free" />
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/barunTayenjam/casa-visitor-guardian?style=for-the-badge&color=FFD700&label=Stars" alt="Stars" />
-  <img src="https://img.shields.io/github/forks/barunTayenjam/casa-visitor-guardian?style=for-the-badge&color=FF6B35&label=Forks" alt="Forks" />
-  <img src="https://img.shields.io/github/last-commit/barunTayenjam/casa-visitor-guardian?style=for-the-badge&color=00D4AA&label=Updated" alt="Last Commit" />
+  <img src="https://img.shields.io/github/stars/barunTayenjam/sentryvision?style=for-the-badge&color=FFD700&label=Stars" alt="Stars" />
+  <img src="https://img.shields.io/github/forks/barunTayenjam/sentryvision?style=for-the-badge&color=FF6B35&label=Forks" alt="Forks" />
+  <img src="https://img.shields.io/github/last-commit/barunTayenjam/sentryvision?style=for-the-badge&color=00D4AA&label=Updated" alt="Last Commit" />
 </p>
 
 <p align="center">
@@ -204,14 +204,14 @@ flowchart LR
 
 ### One-Line Install
 ```bash
-curl -fsSL https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/barunTayenjam/sentryvision/main/scripts/install.sh | bash
 ```
 Auto-detects LAN IP, generates secrets, builds containers, verifies health. Add cameras from the Web UI.
 
 ### Docker Compose (Manual)
 ```bash
-git clone https://github.com/barunTayenjam/casa-visitor-guardian.git
-cd casa-visitor-guardian
+git clone https://github.com/barunTayenjam/sentryvision.git
+cd sentryvision
 cp .env.example .env    # Edit with your secrets
 docker compose up -d --build
 ```
