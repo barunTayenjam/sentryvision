@@ -7,15 +7,12 @@
   "scripts": {
     "start": "node --max-old-space-size=512 dist/index.js",
     "dev": "NODE_OPTIONS='--max-old-space-size=512' nodemon --watch src --watch cameras.json --exec tsx src/index.ts",
-    "dev:old": "nodemon --exec node --experimental-specifier-resolution=node --loader ts-node/esm src/index.ts",
     "build": "tsc",
     "test:server": "node --experimental-vm-modules node_modules/.bin/jest",
     "init-batch-db": "tsx scripts/init-batch-db.js",
     "batch-process": "tsx scripts/runBatchProcessing.ts",
     "add-test-detections": "tsx scripts/addTestDetectionData.ts",
-    "detect-from-files": "tsx scripts/detectFromFiles.ts",
-    "docker:dev": "docker-compose -f ../docker-compose.dev.yml up backend --build",
-    "docker:dev:logs": "docker-compose -f ../docker-compose.dev.yml logs -f backend"
+    "detect-from-files": "tsx scripts/detectFromFiles.ts"
   },
   "dependencies": {
     "@types/multer": "^2.0.0",

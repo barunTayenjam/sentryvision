@@ -9,7 +9,6 @@
     "dev:full": "npm run kill:ports && concurrently \"npm run dev:server\" \"wait-on -t 30000 http://localhost:9753 && npm run dev\"",
     "kill:ports": "lsof -ti:9753 | xargs kill -9 2>/dev/null || true && lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
     "build": "cd frontend-next && npm run build",
-    "build:next": "cd frontend-next && npm run build",
     "build:server": "cd server && npm run build",
     "build:full": "npm run build && npm run build:server",
     "lint": "cd frontend-next && npm run lint",
@@ -20,14 +19,7 @@
     "typecheck": "cd frontend-next && npm run typecheck",
     "preview": "python3 -m http.server 4173 --directory frontend-next/out",
     "health:check": "npm run build && npm run lint && npm run typecheck && echo '✅ Frontend health check passed!'",
-    "test:server": "cd server && npm run test:server",
-    "docker:dev": "docker-compose -f docker-compose.dev.yml up --build",
-    "docker:dev:detach": "docker-compose -f docker-compose.dev.yml up --build -d",
-    "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",
-    "docker:dev:logs": "docker-compose -f docker-compose.dev.yml logs -f",
-    "docker:dev:restart": "docker-compose -f docker-compose.dev.yml restart",
-    "docker:clean": "docker-compose -f docker-compose.dev.yml down -v --remove-orphans",
-    "docker:ps": "docker-compose -f docker-compose.dev.yml ps"
+    "test:server": "cd server && npm run test:server"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
