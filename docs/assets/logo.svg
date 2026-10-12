@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">SentryVision logo — Watch House, colour</title>
+  <!-- Primary colour mark. Roof (shelter) = slate ink #1E293B;
+       pupil (vigilance) = mint #00D4AA. Exact-45° gable: peak (128,54),
+       eaves (16,166)/(240,166), inner band offset 63 → peak (128,117),
+       inner eaves (177,166)/(79,166). Pupil r=32 at (128,170). -->
+  <path fill="#1E293B" d="M16 166 L128 54 L240 166 L177 166 L128 117 L79 166 Z"/>
+  <circle cx="128" cy="170" r="32" fill="#00D4AA"/>
+</svg>

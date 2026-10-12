@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&size=28&duration=3000&pause=800&color=00D4AA&center=true&vCenter=true&width=600&lines=SentryVision;Enterprise-grade+home+security;Self-hosted.+Zero+cloud.+Total+sovereignty.;AI+detection+%7C+Face+recognition+%7C+WebRTC" alt="SentryVision" />
+  <img src="./docs/assets/logo.svg" alt="SentryVision" width="180" />
 </p>
 
 <p align="center">
