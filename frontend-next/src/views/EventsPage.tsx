@@ -13,7 +13,8 @@ import { RelatedEvents } from '@/components/events/RelatedEvents';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { eventService } from '@/services/api/eventService';
 import { detectionService } from '@/services/api/detectionService';
-import { Calendar, CheckCircle2, AlertTriangle, Search, X } from 'lucide-react';
+import { Calendar, CheckCircle2, AlertTriangle, Search, X, Sparkles, ChevronDown } from 'lucide-react';
+import { digestService, DailyDigest } from '@/services/api/digestService';
 import { cn } from '@/lib/utils';
 import { detectionInfo } from '@/lib/detectionMeta';
 import {
@@ -96,8 +97,32 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
   const sortBy = (searchParams.get('sortBy') || 'newest') as SortOption;
   const selectedEventId = searchParams.get('eventId');
   const searchQuery = (searchParams.get('q') || '').trim();
+  const digestParam = searchParams.get('digest');
+  const [digest, setDigest] = useState<DailyDigest | null>(null);
+  const [digestCollapsed, setDigestCollapsed] = useState(false);
+  const [digestLoading, setDigestLoading] = useState(!!digestParam);
   const [searchInput, setSearchInput] = useState(searchQuery);
   const filters = useMemo(() => getFilterFromParams(searchParams), [searchParams]);
+
+  useEffect(() => {
+    if (!digestParam) return;
+    let cancelled = false;
+    digestService
+      .get(digestParam)
+      .then((d) => {
+        if (cancelled) return;
+        setDigest(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDigest(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDigestLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [digestParam]);
 
   const { data: listData, isLoading: listLoading, isError: listError, refetch: refetchList } =
     useEventsList({
@@ -232,6 +257,11 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
     },
     [updateParams],
   );
+
+  const handleDigestClear = useCallback(() => {
+    setDigest(null);
+    updateParams({ digest: null });
+  }, [updateParams]);
 
   const handlePageChange = useCallback(
     (page: number) => {
@@ -409,6 +439,49 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
           <div className="mb-4 border-b border-white/[0.06] pb-3">
             <SmartFilters cameras={cameraList} filters={filters} onFiltersChange={handleFiltersChange} />
           </div>
+
+          {digestLoading && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-card px-3 py-2 text-xs text-muted-foreground">
+              <Sparkles className="h-4 w-4 animate-pulse" />
+              Loading daily digest…
+            </div>
+          )}
+
+          {digest && !digestCollapsed && (
+            <div className="mb-4 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2.5 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span className="font-medium text-foreground">{digest.title}</span>
+                <span className="text-muted-foreground">
+                  {digest.event_count.toLocaleString('en-IN')} events ·{' '}
+                  {digest.detection_count.toLocaleString('en-IN')} detections
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => setDigestCollapsed(true)}
+                    className="rounded-md px-2 py-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                    title="Collapse"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={handleDigestClear}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                    title="Close"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2 space-y-1 text-foreground/80">
+                {digest.body.split('\n').map((line, i) => (
+                  <p key={i} className={line.startsWith('**') ? 'font-medium text-foreground' : ''}>
+                    {line.replace(/\*\*/g, '')}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isSearchMode && (
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.06] px-3 py-2 text-xs">

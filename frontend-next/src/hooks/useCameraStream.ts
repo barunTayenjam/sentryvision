@@ -38,10 +38,13 @@ const GO2RTC_BASE = '/go2rtc';
 
 interface UseCameraStreamOptions {
   camera: Camera;
+  /** go2rtc stream name override (e.g. `${id}_sub` substream for tiles). */
+  streamSrc?: string;
   autoStart?: boolean;
 }
 
-export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOptions) => {
+export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCameraStreamOptions) => {
+  const src = streamSrc ?? camera.id;
   const startCameraStream = useCameraStore((state) => state.startCameraStream);
   const stopCameraStream = useCameraStore((state) => state.stopCameraStream);
   const socketConnected = useSocketStore((state) => state.connected);
@@ -245,7 +248,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
     return new Promise<void>((resolve, reject) => {
       cleanupHLS();
       camLog(`[CameraStream:${camera.name}] Starting HLS stream via go2rtc`);
-      const hlsUrl = `${GO2RTC_BASE}/api/stream.m3u8?src=${camera.id}`;
+      const hlsUrl = `${GO2RTC_BASE}/api/stream.m3u8?src=${src}`;
       const video = videoRef.current;
 
       if (!video) {
@@ -287,7 +290,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
         if (e.name !== 'AbortError') camWarn('HLS play failed:', e);
       });
     });
-  }, [camera.id, camera.name, cleanupHLS]);
+  }, [src, camera.id, camera.name, cleanupHLS]);
 
   const cleanupPeerConnection = useCallback(() => {
     if (pcRef.current) {
@@ -444,7 +447,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
           await pc.setLocalDescription(offer);
 
           const token = getAuthToken();
-          const response = await fetch(`${GO2RTC_BASE}/api/webrtc?src=${camera.id}`, {
+          const response = await fetch(`${GO2RTC_BASE}/api/webrtc?src=${src}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -467,7 +470,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
         }
       })();
     });
-  }, [camera.id, camera.name, cleanupPeerConnection, handleStreamRestart]);
+  }, [src, camera.id, camera.name, cleanupPeerConnection, handleStreamRestart]);
 
   const cleanupMSE = useCallback(() => {
     mseSettledRef.current = false;
@@ -491,7 +494,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
       cleanupMSE();
       camLog(`[CameraStream:${camera.name}] Starting MSE stream via go2rtc`);
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${proto}//${window.location.host}${GO2RTC_BASE}/api/ws?src=${camera.id}`;
+      const wsUrl = `${proto}//${window.location.host}${GO2RTC_BASE}/api/ws?src=${src}`;
       const ws = new WebSocket(withMediaToken(wsUrl));
       ws.binaryType = 'arraybuffer';
       mseWsRef.current = ws;
@@ -593,7 +596,7 @@ export const useCameraStream = ({ camera, autoStart = true }: UseCameraStreamOpt
         }
       };
     });
-  }, [camera.id, camera.name, cleanupMSE, handleStreamRestart]);
+  }, [src, camera.id, camera.name, cleanupMSE, handleStreamRestart]);
 
   const stopFrameRender = useCallback(() => {
     if (renderRafRef.current) {

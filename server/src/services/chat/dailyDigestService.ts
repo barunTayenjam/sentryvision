@@ -104,6 +104,12 @@ export async function buildYesterdayDigest(): Promise<DigestPayload> {
 /** Push yesterday's digest to every user with an active push subscription. */
 export async function sendDailyDigest(): Promise<{ pushed: number; failed: number }> {
   const digest = await buildYesterdayDigest();
+  return pushDigestToSubscribers(digest);
+}
+
+async function pushDigestToSubscribers(
+  digest: DigestPayload,
+): Promise<{ pushed: number; failed: number }> {
   let rows: Array<{ user_id: string }>;
   try {
     rows = (await AppDataSource.query(
@@ -133,4 +139,104 @@ export async function sendDailyDigest(): Promise<{ pushed: number; failed: numbe
   }
   logger.info(`Daily digest sent to ${pushed} users (${failed} failed)`, 'DIGEST');
   return { pushed, failed };
+}
+
+// ── Persistence: digests are revisitable from the Events page ──
+
+export interface PersistedDigest {
+  id: string;
+  digest_date: string;
+  title: string;
+  body: string;
+  url: string;
+  event_count: number;
+  detection_count: number;
+  created_at: string;
+}
+
+/** Build + upsert yesterday's digest into daily_digests. */
+export async function persistDigest(): Promise<PersistedDigest | null> {
+  try {
+    const digest = await buildYesterdayDigest();
+    const { label } = istDayRange();
+    const statsLabel = digest.body.match(/(\d[\d,]*) events/);
+    const eventCount = statsLabel ? parseInt(statsLabel[1].replace(/,/g, ''), 10) : 0;
+    const detLabel = digest.body.match(/(\d[\d,]*) detections/);
+    const detectionCount = detLabel ? parseInt(detLabel[1].replace(/,/g, ''), 10) : 0;
+
+    await AppDataSource.query(
+      `INSERT INTO daily_digests (digest_date, title, body, url, event_count, detection_count)
+       VALUES ($1::date, $2, $3, $4, $5, $6)
+       ON CONFLICT (digest_date) DO UPDATE SET
+         title = EXCLUDED.title,
+         body = EXCLUDED.body,
+         event_count = EXCLUDED.event_count,
+         detection_count = EXCLUDED.detection_count`,
+      [label, digest.title, digest.body, digest.url, eventCount, detectionCount],
+    );
+
+    return {
+      id: label,
+      digest_date: label,
+      title: digest.title,
+      body: digest.body,
+      url: digest.url,
+      event_count: eventCount,
+      detection_count: detectionCount,
+      created_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    logger.warn('Daily digest: persist failed', 'DIGEST', err);
+    return null;
+  }
+}
+
+/** List digests, newest first. */
+export async function listDigests(limit = 30, offset = 0): Promise<PersistedDigest[]> {
+  try {
+    return (await AppDataSource.query(
+      `SELECT id::text, digest_date::text, title, body, url, event_count, detection_count,
+              created_at::text
+       FROM daily_digests
+       ORDER BY digest_date DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    )) as PersistedDigest[];
+  } catch (err) {
+    logger.warn('Daily digest: list failed', 'DIGEST', err);
+    return [];
+  }
+}
+
+/** Fetch one digest by ISO date (YYYY-MM-DD). */
+export async function getDigest(dateStr: string): Promise<PersistedDigest | null> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  try {
+    const rows = (await AppDataSource.query(
+      `SELECT id::text, digest_date::text, title, body, url, event_count, detection_count,
+              created_at::text
+       FROM daily_digests
+       WHERE digest_date = $1::date`,
+      [dateStr],
+    )) as PersistedDigest[];
+    return rows[0] ?? null;
+  } catch (err) {
+    logger.warn(`Daily digest: fetch ${dateStr} failed`, 'DIGEST', err);
+    return null;
+  }
+}
+
+/** Full cron path: persist first (revisitable), then push with deep link. */
+export async function persistAndPushDigest(): Promise<{
+  persisted: boolean;
+  pushed: number;
+  failed: number;
+}> {
+  const stored = await persistDigest();
+  const deepLink = stored ? `/events?digest=${stored.digest_date}` : '/events';
+  const digest: DigestPayload = stored
+    ? { title: stored.title, body: stored.body, url: deepLink }
+    : { title: 'Daily digest', body: 'No digest available.', url: deepLink };
+  const result = await pushDigestToSubscribers(digest);
+  return { persisted: stored !== null, ...result };
 }

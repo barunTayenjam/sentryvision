@@ -31,6 +31,7 @@ import faceClusterRoutes from './face-clusters.js';
 import faceIdentityRoutes from './face-identities.js';
 import chatRoutes from './chat.js';
 import reviewRoutes from './review.js';
+import digestRoutes from './digests.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -125,4 +126,5 @@ export function configureRoutes(app: Express, io: SocketIOServer) {
   app.use('/api/face-identities', faceIdentityRoutes);
   app.use('/api/chat', chatRoutes);
   app.use('/api/review', reviewRoutes);
+  app.use('/api/digests', digestRoutes);
 }
