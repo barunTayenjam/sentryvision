@@ -3,6 +3,7 @@ import { AppDataSource } from '../../database.js';
 import { Event } from '../../models/Event.js';
 import { DetectionDataNormalizer } from '../../utils/detectionDataNormalizer.js';
 import { serviceRegistry } from '../serviceRegistry.js';
+import { getOpenCVClient } from '../opencvMicroserviceClient.js';
 import type {
   EventSearchFilters,
   EventSearchResponse,
@@ -125,8 +126,14 @@ export class EventSearchService {
 
     const conditions: string[] = [
       "e.event_type IN ('motion', 'face', 'person', 'visitor', 'recognition', 'event_motion', 'event_face')",
-      "e.file_path IS NOT NULL AND e.file_path != ''",
-      "COALESCE(e.persons_detected, 0) > 0",
+      // persons_detected>0 is NOT a global condition: it hid 223 vehicle and
+      // motion events per 2 days (persons=0) that the UI had already shown
+      // live — the "event tracked then disappears on reload" symptom. The
+      // person filter applies only when the user asks for persons.
+      // Image is mandatory for person/face (the crop IS the evidence) but
+      // motion rows legitimately carry no snapshot — hiding them also hid
+      // every event the live feed had announced.
+      "(e.event_type NOT IN ('person', 'visitor', 'recognition', 'face', 'event_face') OR (e.file_path IS NOT NULL AND e.file_path != ''))",
     ];
     const queryParams: unknown[] = [];
     let paramIndex = 1;
@@ -696,5 +703,136 @@ export class EventSearchService {
     });
 
     return { events, count: events.length };
+  }
+
+  /**
+   * Semantic search over events using pgvector embeddings.
+   * Returns hybrid results: semantic candidates ∪ keyword matches, merged and ranked.
+   */
+  async semanticSearch(
+    query: string,
+    filters: {
+      cameraId?: string;
+      eventType?: string;
+      startDate?: Date;
+      endDate?: Date;
+      limit?: number;
+    } = {},
+  ): Promise<{
+    events: any[];
+    total: number;
+    semanticHits: number;
+    keywordHits: number;
+  }> {
+    const embedding = await this.getEmbedding(query);
+    if (!embedding || embedding.length === 0) {
+      return { events: [], total: 0, semanticHits: 0, keywordHits: 0 };
+    }
+
+    const conditions: string[] = ['scene_embedding IS NOT NULL'];
+    const keywordConditions: string[] = ['scene_embedding IS NOT NULL'];
+    const keywordValues: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.cameraId) {
+      conditions.push(`camera_id = '${filters.cameraId.replace(/[^a-zA-Z0-9_-]/g, '')}'`);
+      keywordConditions.push(`camera_id = $${paramIndex++}`);
+      keywordValues.push(filters.cameraId);
+    }
+    if (filters.eventType) {
+      conditions.push(`event_type = '${filters.eventType.replace(/[^a-zA-Z0-9_-]/g, '')}'`);
+      keywordConditions.push(`event_type = $${paramIndex++}`);
+      keywordValues.push(filters.eventType);
+    }
+    if (filters.startDate) {
+      conditions.push(`timestamp >= '${filters.startDate.toISOString()}'`);
+      keywordConditions.push(`timestamp >= $${paramIndex++}`);
+      keywordValues.push(filters.startDate.toISOString());
+    }
+    if (filters.endDate) {
+      conditions.push(`timestamp <= '${filters.endDate.toISOString()}'`);
+      keywordConditions.push(`timestamp <= $${paramIndex++}`);
+      keywordValues.push(filters.endDate.toISOString());
+    }
+
+    const limit = filters.limit || 20;
+
+    // Inline the vector literal (validated finite floats only — no injection
+    // surface) because the pg driver cannot infer param type inside <=> casts.
+    const vecLiteral = `[${embedding.map((n) => Number(n.toFixed(6))).join(',')}]`;
+
+    // 1. Semantic cosine distance search (top 50 candidates)
+    const semanticQuery = `
+      SELECT
+        e.*,
+        (scene_embedding <=> '${vecLiteral}') as distance,
+        1 - (scene_embedding <=> '${vecLiteral}') as similarity
+      FROM events e
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY distance ASC
+      LIMIT 50
+    `;
+
+    // 2. Keyword fallback (top 50)
+    const keywordQuery = `
+      SELECT e.*, 1 as distance, 1 as similarity
+      FROM events e
+      WHERE ${keywordConditions.join(' AND ')}
+        AND (
+          e.camera_id ILIKE $${paramIndex}
+          OR e.file_path ILIKE $${paramIndex}
+          OR e.metadata::text ILIKE $${paramIndex}
+        )
+      ORDER BY e.timestamp DESC
+      LIMIT $${paramIndex + 1}
+    `;
+    keywordValues.push(`%${query}%`);
+    keywordValues.push(50);
+
+    const [semanticRows, keywordRows] = await Promise.all([
+      AppDataSource.query(semanticQuery),
+      AppDataSource.query(keywordQuery, keywordValues),
+    ]);
+
+    // Merge by id, prefer semantic rank
+    const merged = new Map<string, any>();
+    for (const row of semanticRows) {
+      merged.set(row.id, { ...row, source: 'semantic' });
+    }
+    for (const row of keywordRows) {
+      if (!merged.has(row.id)) {
+        merged.set(row.id, { ...row, source: 'keyword' });
+      }
+    }
+
+    const events = Array.from(merged.values())
+      .sort((a, b) => (a.distance || 0) - (b.distance || 0))
+      .slice(0, limit);
+
+    return {
+      events: events.map((row) => ({
+        id: row.id,
+        eventType: row.event_type,
+        timestamp: row.timestamp,
+        cameraId: row.camera_id,
+        confidence: row.confidence,
+        personsDetected: row.persons_detected,
+        facesDetected: row.faces_detected,
+        knownFacesCount: row.known_faces_count,
+        unknownFacesCount: row.unknown_faces_count,
+        objectDetections: row.object_detections || [],
+        faceDetections: row.face_detections || [],
+        imageUrl: row.file_path ? `/api/events/image/${row.file_path.split('/').pop()}` : null,
+        similarity: row.similarity,
+        searchSource: row.source,
+      })),
+      total: merged.size,
+      semanticHits: semanticRows.length,
+      keywordHits: keywordRows.length,
+    };
+  }
+
+  private async getEmbedding(text: string): Promise<number[] | null> {
+    return getOpenCVClient().getEmbedding(text);
   }
 }

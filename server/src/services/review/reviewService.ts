@@ -16,6 +16,16 @@ interface ReviewQuery {
   offset?: number;
 }
 
+export interface ReviewSegmentEventInput {
+  id: string;
+  camera_id: string;
+  timestamp: Date;
+  severity: 'alert' | 'detection' | 'info';
+  event_type: string;
+  file_path?: string | null;
+  object_detections?: Array<{ class: string; confidence?: number; trackId?: number }> | null;
+}
+
 interface SegmentBundle {
   objects: Map<string, { label: string; lastSeen: Date; score: number }>;
   startTime: Date;
@@ -49,12 +59,26 @@ export class ReviewService {
     const cached = await cacheService.getJSON(cacheKey);
     if (cached) return cached;
 
-    const { camera, after, before, severity, labels, limit = 100, offset = 0 } = query;
+    const { camera, after, before, severity, labels, reviewed, userId, limit = 100, offset = 0 } =
+      query;
 
     const queryBuilder = this.reviewSegmentRepo
       .createQueryBuilder('segment')
       .where('segment.start_time >= :after', { after: after || new Date(0) })
       .andWhere('segment.start_time <= :before', { before: before || new Date() });
+
+    if (reviewed !== undefined && userId) {
+      queryBuilder.leftJoin(
+        'user_review_status',
+        'urs',
+        'urs.review_segment_id = segment.id AND urs.user_id = :userId AND urs.has_been_reviewed = true',
+        { userId },
+      );
+      queryBuilder.andWhere(
+        reviewed ? 'urs.review_segment_id IS NOT NULL' : 'urs.review_segment_id IS NULL',
+        { userId },
+      );
+    }
 
     if (camera) {
       queryBuilder.andWhere('segment.camera = :camera', { camera });
@@ -162,6 +186,110 @@ export class ReviewService {
       });
     }
 
+    await this.invalidateCache();
+  }
+
+  // ── Event-driven segment upsert (used by detectionPersistence write path) ──
+
+  static readonly BUNDLE_BUCKET_MS = 30000;
+
+  segmentIdForEvent(cameraId: string, timestamp: Date): string {
+    const bucket = Math.floor(timestamp.getTime() / ReviewService.BUNDLE_BUCKET_MS) * 30;
+    return `rev_${cameraId}_${bucket}`;
+  }
+
+  async upsertSegmentFromEvent(event: ReviewSegmentEventInput): Promise<void> {
+    try {
+      if (!event.camera_id) return;
+      if (event.severity !== 'alert' && event.severity !== 'detection') return;
+
+      const segmentId = this.segmentIdForEvent(event.camera_id, event.timestamp);
+      const bucketStart = new Date(
+        Math.floor(event.timestamp.getTime() / ReviewService.BUNDLE_BUCKET_MS) *
+          ReviewService.BUNDLE_BUCKET_MS,
+      );
+      const bucketEnd = new Date(
+        bucketStart.getTime() + ReviewService.BUNDLE_BUCKET_MS - 1,
+      );
+
+      const classes = (event.object_detections ?? [])
+        .map((d) => d.class)
+        .filter((c) => typeof c === 'string' && c.length > 0);
+      const labelSet = new Set<string>([...classes, event.event_type].filter(Boolean));
+      const labels = Array.from(labelSet);
+
+      const thumbnail = event.file_path ?? null;
+
+      await this.reviewSegmentRepo.query(
+        `INSERT INTO review_segments
+           (id, camera, start_time, end_time, severity, labels, thumbnail_path, data)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7,
+           jsonb_build_object('event_id', $8::text, 'event_type', $9::text))
+         ON CONFLICT (id) DO UPDATE SET
+           end_time = GREATEST(review_segments.end_time, EXCLUDED.end_time),
+           severity = CASE WHEN EXCLUDED.severity = 'alert' THEN 'alert' ELSE review_segments.severity END,
+           labels = (SELECT jsonb_agg(DISTINCT v) FROM jsonb_array_elements_text(
+             review_segments.labels || EXCLUDED.labels) v),
+           thumbnail_path = COALESCE(review_segments.thumbnail_path, EXCLUDED.thumbnail_path)`,
+        [
+          segmentId,
+          event.camera_id,
+          bucketStart.toISOString(),
+          bucketEnd.toISOString(),
+          event.severity,
+          JSON.stringify(labels),
+          thumbnail,
+          event.id,
+          event.event_type,
+        ],
+      );
+
+      await cacheService.del('review:segments:*');
+    } catch (err) {
+      logger.error(
+        `upsertSegmentFromEvent failed: ${err instanceof Error ? err.message : String(err)}`,
+        'ReviewService',
+      );
+    }
+  }
+
+  async getUnreviewedCounts(userId: string): Promise<{ alert: number; detection: number }> {
+    const rows: Array<{ severity: string; count: string }> = await this.reviewSegmentRepo.query(
+      `SELECT s.severity AS severity, COUNT(*) AS count
+       FROM review_segments s
+       LEFT JOIN user_review_status urs
+         ON urs.review_segment_id = s.id
+        AND urs.user_id = $1
+        AND urs.has_been_reviewed = true
+       WHERE urs.review_segment_id IS NULL
+       GROUP BY s.severity`,
+      [userId],
+    );
+    const counts = { alert: 0, detection: 0 };
+    for (const row of rows) {
+      if (row.severity === 'alert') counts.alert = Number(row.count);
+      else if (row.severity === 'detection') counts.detection = Number(row.count);
+    }
+    return counts;
+  }
+
+  async batchAcknowledge(
+    segmentIds: string[],
+    userId: string,
+    action?: 'dismiss' | 'confirm',
+  ): Promise<void> {
+    if (segmentIds.length === 0) return;
+    await this.reviewStatusRepo.query(
+      `INSERT INTO user_review_status
+         (user_id, review_segment_id, has_been_reviewed, reviewed_at, review_action)
+       SELECT $1::text, seg_id, true, NOW(), $3::text
+       FROM unnest($2::text[]) AS seg_id
+       ON CONFLICT (user_id, review_segment_id) DO UPDATE SET
+         has_been_reviewed = true,
+         reviewed_at = NOW(),
+         review_action = EXCLUDED.review_action`,
+      [userId, segmentIds, action ?? null],
+    );
     await this.invalidateCache();
   }
 

@@ -89,12 +89,11 @@ describe('person stationarity dedupe', () => {
   });
 
   it('collapses a run of sightings inside one window into a single event', () => {
-    // The real jeep stream had gaps of 0.1-15 minutes (median ~3). Five
-    // sightings spread over 8 minutes must all fall inside the 10 minute window.
+    // Five sightings spread over 2.5 minutes must all fall inside the 3 minute window.
     const dedup = new TrackDeduplicator();
     let persisted = 0;
     for (let i = 0; i < 5; i++) {
-      tick(i * 2 * 60_000);
+      tick(i * 38_000);
       if (dedup.shouldPersist(personEvent({ trackId: 100 + i }))) persisted++;
     }
 
@@ -102,9 +101,8 @@ describe('person stationarity dedupe', () => {
   });
 
   it('shrinks the 35-sighting ghost stream from 35 events to a handful', () => {
-    // Not to one: the window is 10 minutes, so a stream that never pauses for
-    // longer than that still re-fires once per window. Measured ghost gaps put
-    // the collapse at roughly 35 -> 5.
+    // Not to one: the window is 3 minutes, so a stream that never pauses for
+    // longer than that still re-fires once per window.
     const dedup = new TrackDeduplicator();
     let persisted = 0;
     for (let i = 0; i < 35; i++) {
@@ -112,7 +110,7 @@ describe('person stationarity dedupe', () => {
       if (dedup.shouldPersist(personEvent({ trackId: 100 + i }))) persisted++;
     }
 
-    expect(persisted).toBeLessThanOrEqual(8);
+    expect(persisted).toBeLessThanOrEqual(13);
     expect(persisted).toBeGreaterThan(0);
   });
 
@@ -131,8 +129,8 @@ describe('person stationarity dedupe', () => {
     const dedup = new TrackDeduplicator();
     dedup.shouldPersist(personEvent({ trackId: 1 }));
 
-    // Beyond the 10 minute window, even an unmoved box counts as new.
-    tick(11 * 60_000);
+    // Beyond the 3 minute window, even an unmoved box counts as new.
+    tick(4 * 60_000);
     const later = dedup.shouldPersist(personEvent({ trackId: 2 }));
 
     expect(later).toBe(true);

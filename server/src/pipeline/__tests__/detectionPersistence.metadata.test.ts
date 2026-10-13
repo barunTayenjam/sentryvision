@@ -148,6 +148,22 @@ describe('detection metadata persistence', () => {
     });
   });
 
+  it('counts the event person even when the scene snapshot is empty or the track is lost', async () => {
+    // Two Oct 5 rows carried a verified human (33 pose keypoints) with
+    // persons_detected=0 and object_detections=[] — the 5s scene window had
+    // expired and the `lost` filter then stripped the primary track too.
+    await persistDetectionEvent(personEvent({ trackState: 'lost' }), []);
+
+    expect(save.mock.calls[0][0].persons_detected).toBe(1);
+    expect(save.mock.calls[0][0].object_detections).toHaveLength(1);
+  });
+
+  it('stores the pipeline person count on the row, not something AI can clobber', async () => {
+    await persistDetectionEvent(personEvent());
+
+    expect(save.mock.calls[0][0].persons_detected).toBe(1);
+  });
+
   it('omits metadata noise when the event carries neither', async () => {
     await persistDetectionEvent(personEvent({ humanVerification: undefined }));
 

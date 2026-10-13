@@ -115,6 +115,7 @@ export interface RelationBox {
   width: number;
   height: number;
   class: string;
+  color?: string;
 }
 
 export interface RelationThreat {

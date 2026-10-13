@@ -22,6 +22,7 @@ import { PythonWsClient, TrackingEvent } from '../services/pythonWsClient.js';
 import { persistDetectionEvent } from '../pipeline/detectionPersistence.js';
 import { SceneTracker } from '../pipeline/sceneTracker.js';
 import { BroadcastGate } from '../pipeline/broadcastGate.js';
+import { initMqttService } from '../services/mqttService.js';
 import { TrackDeduplicator } from '../pipeline/trackDeduplicator.js';
 import { ReviewSegment } from '../models/ReviewSegment.js';
 import { UserReviewStatus } from '../models/UserReviewStatus.js';
@@ -29,6 +30,24 @@ import { Timeline } from '../models/Timeline.js';
 import { AdaptiveRegion } from '../models/AdaptiveRegion.js';
 import { DetectionConfig } from '../models/DetectionConfig.js';
 import { startRelationQueueWorker } from '../services/relationQueue.js';
+import { HumanVerification } from '../models/HumanVerification.js';
+
+async function recordFailedVerification(ev: TrackingEvent): Promise<void> {
+  const hv = ev.humanVerification!;
+  const repo = AppDataSource.getRepository(HumanVerification);
+  await repo.insert({
+    cameraId: ev.cameraId!,
+    trackId: String(ev.trackId),
+    verified: false,
+    tier: hv.tier,
+    keypoints: hv.keypoints ?? 0,
+    faceDetected: hv.face_detected ?? false,
+    yoloScore: hv.yolo_score ?? ev.score ?? 0,
+    roiWidth: hv.roi_w ?? 0,
+    roiHeight: hv.roi_h ?? 0,
+    elapsedMs: hv.elapsed_ms ?? 0,
+  });
+}
 
 export async function initializeServices(io: SocketIOServer): Promise<void> {
   serviceRegistry.setAppDataSource(AppDataSource);
@@ -144,6 +163,21 @@ export async function initializeServices(io: SocketIOServer): Promise<void> {
           cameraId,
           detections: [detection],
           timestamp: new Date(ev.timestamp).toISOString(),
+        });
+      }
+
+      // HumanVerifier fails never reach persistence (no event row, and the
+      // deduplicator drops filePath-less persons before persistence), so they
+      // left no audit trail at all — all-time human_verifications rows were
+      // 100% verified=true. Record the fail here instead: the row is what makes
+      // the verifier tunable.
+      if (className === 'person' && ev.humanVerification?.verified === false) {
+        recordFailedVerification(ev).catch((err: unknown) => {
+          logger.warn(
+            `Failed to record verification failure for ${cameraId}`,
+            'INIT',
+            err,
+          );
         });
       }
 
@@ -296,5 +330,28 @@ export async function initializeServices(io: SocketIOServer): Promise<void> {
     logger.info('Relation queue worker started', 'INIT');
   } catch (error) {
     logger.error('Relation queue worker failed to start (non-critical)', 'INIT', error);
+  }
+
+  if (config.mqtt.enabled) {
+    try {
+      const mqttService = initMqttService({
+        enabled: Boolean(config.mqtt.enabled),
+        host: config.mqtt.host,
+        port: config.mqtt.port ?? 1883,
+        topicPrefix: config.mqtt.topicPrefix ?? 'sentryvision',
+        user: config.mqtt.user,
+        password: config.mqtt.password,
+        qos: (config.mqtt.qos ?? 0) as 0 | 1 | 2,
+      });
+      const cameraIds = config.cameras.map((c: CameraConfig) => c.id);
+      mqttService.publishHADiscovery(cameraIds);
+      for (const cam of config.cameras) {
+        mqttService.publishPersonState(cam.id, false);
+        mqttService.publishCameraStatus(cam.id, 'online');
+      }
+      logger.info(`MQTT publisher started (${cameraIds.length} cameras discovered)`, 'INIT');
+    } catch (error) {
+      logger.error('MQTT publisher failed to start (non-critical)', 'INIT', error);
+    }
   }
 }

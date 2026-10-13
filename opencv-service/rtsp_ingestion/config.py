@@ -24,7 +24,9 @@ DETECTION_FPS = 4
 # MOG2 motion detection
 MOG2_HISTORY = 200
 MOG2_VAR_THRESHOLD = 16
-MOTION_PIXEL_THRESHOLD = 150
+# Recall-oriented: slow walkers register <150px on 640x360; the verifier
+# (face/pose/score_floor) plus the 3-hit persistence gate re-filter ghosts.
+MOTION_PIXEL_THRESHOLD = int(os.getenv("MOG2_PIXEL_THRESHOLD", "80"))
 
 # JPEG encoding (live preview — small frames, higher quality keeps motion smooth)
 JPEG_QUALITY = 75

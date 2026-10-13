@@ -128,3 +128,26 @@ def test_merge_scene_boxes_caps_at_max():
     tracked = [{"x": i * 500, "y": 0, "width": 100, "height": 100, "class": "person"} for i in range(12)]
     merged = merge_scene_boxes(tracked, [])
     assert len(merged) == 10
+
+
+def test_dominant_color_naming():
+    from relation_analyzer import dominant_color_name
+
+    assert dominant_color_name((10, 10, 12)) == "black"
+    assert dominant_color_name((250, 250, 250)) == "white"
+    assert dominant_color_name((120, 120, 125)) == "gray"
+    assert dominant_color_name((200, 30, 30)) == "red"
+    assert dominant_color_name((30, 30, 200)) == "blue"
+    assert dominant_color_name((30, 160, 60)) == "green"
+    assert dominant_color_name((120, 80, 40)) == "brown"
+    assert dominant_color_name((230, 200, 40)) == "yellow"
+
+
+def test_box_color_on_synthetic_image():
+    from PIL import Image
+    from relation_analyzer import box_color
+
+    img = Image.new("RGB", (100, 100), (20, 60, 220))
+    assert box_color(img, [10, 10, 90, 90]) == "blue"
+    img2 = Image.new("RGB", (100, 100), (240, 240, 240))
+    assert box_color(img2, [0, 0, 100, 100]) == "white"

@@ -1,21 +1,18 @@
 {
   "name": "sentryvision-server",
-  "version": "1.7.0",
+  "version": "1.7.2",
   "description": "Backend server for streaming RTSP camera feeds",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "start": "node --max-old-space-size=512 dist/index.js",
     "dev": "NODE_OPTIONS='--max-old-space-size=512' nodemon --watch src --watch cameras.json --exec tsx src/index.ts",
-    "dev:old": "nodemon --exec node --experimental-specifier-resolution=node --loader ts-node/esm src/index.ts",
     "build": "tsc",
     "test:server": "node --experimental-vm-modules node_modules/.bin/jest",
     "init-batch-db": "tsx scripts/init-batch-db.js",
     "batch-process": "tsx scripts/runBatchProcessing.ts",
     "add-test-detections": "tsx scripts/addTestDetectionData.ts",
-    "detect-from-files": "tsx scripts/detectFromFiles.ts",
-    "docker:dev": "docker-compose -f ../docker-compose.dev.yml up backend --build",
-    "docker:dev:logs": "docker-compose -f ../docker-compose.dev.yml logs -f backend"
+    "detect-from-files": "tsx scripts/detectFromFiles.ts"
   },
   "dependencies": {
     "@types/multer": "^2.0.0",
@@ -35,6 +32,7 @@
     "http-proxy-middleware": "^4.1.0",
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
+    "mqtt": "^5.16.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "pg": "^8.16.3",

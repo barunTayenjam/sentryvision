@@ -14,6 +14,8 @@ export interface EventRelationsResponse {
 
 interface StoredRelationsDoc {
   v: 1;
+  imageWidth?: number;
+  imageHeight?: number;
   boxes: RelationBox[];
   relations: EventRelation[];
 }
@@ -198,7 +200,13 @@ export class RelationAnalysisService {
       };
     }
     const relations = deduplicateRelations(result.relations ?? []);
-    await this.persistDoc(eventId, { v: 1, boxes, relations });
+    await this.persistDoc(eventId, {
+      v: 1,
+      imageWidth: result.imageWidth,
+      imageHeight: result.imageHeight,
+      boxes,
+      relations,
+    });
     logger.info(
       `RelationAnalysis: event ${eventId} -> ${relations.length} relations over ${boxes.length} boxes (${result.processingTimeMs}ms)`,
       'RelationAnalysis',

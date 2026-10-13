@@ -71,6 +71,13 @@ export class EventMetadataWriter {
       const threatConfidence = Number(result.threatAssessment?.confidence) || 0;
       const aiConfidence01 = threatConfidence > 1 ? threatConfidence / 100 : threatConfidence;
 
+      // The AI enumerates people from prose, not measurements — on the two
+      // rows that exposed this it found 0 on images with a verified human
+      // pose (33 keypoints). It must only ever raise the detector count,
+      // never zero it: a 0 here hid both rows from the events list.
+      const aiCount = Array.isArray(aiPeople) ? aiPeople.length : 0;
+      const pipelineCount = Number(event.persons_detected) || 0;
+
       await eventRepository.update(
         { id: event.id },
         {
@@ -93,7 +100,7 @@ export class EventMetadataWriter {
             analyzedAt: new Date().toISOString(),
           } as Record<string, unknown>,
           severity,
-          persons_detected: aiPeople.length,
+          persons_detected: Math.max(pipelineCount, aiCount),
           confidence: aiConfidence01,
         } as any,
       );

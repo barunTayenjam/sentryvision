@@ -1,0 +1,76 @@
+{
+  "downloaded_at": "2026-10-11T22:43:49.075072",
+  "models": {
+    "yolov8s.onnx": {
+      "downloaded": true,
+      "size_bytes": 44869837,
+      "size_mb": 42.79121112823486,
+      "description": "YOLOv8 Small ONNX - Best accuracy for scene understanding"
+    },
+    "yolov8n.onnx": {
+      "downloaded": false,
+      "description": "YOLOv8 Nano ONNX - Fast fallback",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.onnx"
+      ]
+    },
+    "crowdhuman_qat_640x384.onnx": {
+      "downloaded": true,
+      "size_bytes": 3330580,
+      "size_mb": 3.176288604736328,
+      "description": "CrowdHuman QAT INT8 person detector - person-specialised, 16:9 input"
+    },
+    "crowdhuman_v8s_qat_640x384.onnx": {
+      "downloaded": false,
+      "description": "CrowdHuman QAT v8s person detector - highest person recall",
+      "urls": [
+        "https://huggingface.co/ru551n/inblick-yolov8n/resolve/main/crowdhuman_v8s_qat_640x384/qdq.onnx"
+      ]
+    },
+    "coco_qat_640x384.onnx": {
+      "downloaded": true,
+      "size_bytes": 3483151,
+      "size_mb": 3.321791648864746,
+      "description": "COCO QAT INT8 detector - vehicles/animals aux, 16:9 input"
+    },
+    "minilm_l6_int8.onnx": {
+      "downloaded": false,
+      "description": "all-MiniLM-L6-v2 INT8 ONNX - 384-dim sentence embeddings",
+      "urls": [
+        "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"
+      ]
+    },
+    "minilm_tokenizer.json": {
+      "downloaded": true,
+      "size_bytes": 711661,
+      "size_mb": 0.6786928176879883,
+      "description": "MiniLM tokenizer.json (wordpiece, 256 token limit)"
+    },
+    "yolov5n.onnx": {
+      "downloaded": true,
+      "size_bytes": 3981910,
+      "size_mb": 3.797445297241211,
+      "description": "YOLOv5 Nano ONNX - Fast detection"
+    },
+    "res10_300x300_ssd_iter_140000_fp16.caffemodel": {
+      "downloaded": false,
+      "description": "DNN Face Detection Model",
+      "urls": [
+        "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000_fp16.caffemodel",
+        "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000_fp16.caffemodel"
+      ]
+    },
+    "deploy.prototxt": {
+      "downloaded": true,
+      "size_bytes": 28104,
+      "size_mb": 0.02680206298828125,
+      "description": "DNN Face Detector Config"
+    },
+    "face_detection_yunet_2023mar.onnx": {
+      "downloaded": true,
+      "size_bytes": 232589,
+      "size_mb": 0.22181415557861328,
+      "description": "YuNet Face Detector (primary \u2014 runs at native res, catches small faces)"
+    }
+  }
+}

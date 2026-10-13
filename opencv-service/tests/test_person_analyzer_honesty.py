@@ -29,7 +29,16 @@ tests pin that the measurements win, and that the fabricated fields are gone.
 import numpy as np
 import pytest
 
+import cv2 as _cv2
+
 from person_analyzer import PersonAnalyzer
+
+# PersonAnalyzer lazily builds Haar cascades; the host wheels ship a headless
+# cv2 without CascadeClassifier. Skip rather than fail — container has it.
+pytestmark = pytest.mark.skipif(
+    not hasattr(_cv2, "CascadeClassifier"),
+    reason="container-only: host cv2 is headless (no CascadeClassifier)",
+)
 
 FRAME_H, FRAME_W = 360, 640
 

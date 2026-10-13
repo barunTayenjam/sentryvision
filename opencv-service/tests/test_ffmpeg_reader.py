@@ -72,9 +72,14 @@ class TestFFmpegReader:
         assert reader._frame_size == 640 * 360 * 3
 
     def test_reconnect_delay_bounds(self, reader):
-        """Reconnect delay starts at 1s and caps at 30s."""
+        """Reconnect delay starts at 1s and caps at 5s.
+
+        The 5s cap replaced 30s: cams flap in seconds (140 drops/24h measured),
+        and a 30s backoff after the camera returned meant 30s of detection
+        blind time with a human possibly in frame.
+        """
         assert reader._reconnect_delay == 1.0
-        assert reader._max_reconnect_delay == 30.0
+        assert reader._max_reconnect_delay == 5.0
 
     def test_build_command_with_different_resolution(self):
         """Command respects custom width/height/fps."""

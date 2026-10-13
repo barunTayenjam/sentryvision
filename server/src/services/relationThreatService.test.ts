@@ -22,9 +22,28 @@ const EVENT_ROW = {
   faces_detected: 1,
   known_faces_count: 0,
   unknown_faces_count: 1,
+  object_detections: [
+    {
+      class: 'person',
+      identity: 'unknown',
+      humanVerified: true,
+      verificationTier: 'face',
+      personAttributes: {
+        clothing_colors: ['white'],
+        carryingItem: 'none',
+        bodyLanguage: 'neutral',
+      },
+    },
+  ],
+  motion_stats: { motion_percentage: 46.9 },
   relations: {
     v: 1,
-    boxes: [{ class: 'person' }, { class: 'motorcycle' }],
+    imageWidth: 2304,
+    imageHeight: 1296,
+    boxes: [
+      { class: 'motorcycle', color: 'blue', x: 0, y: 500, width: 220, height: 400 },
+      { class: 'person', x: 976, y: 623, width: 233, height: 488 },
+    ],
     relations: [
       { subject: 'person', predicate: 'walking toward', object: 'motorcycle', score: 0.57, subjectIndex: 0, objectIndex: 1 },
     ],
@@ -105,7 +124,11 @@ describe('relationThreatService', () => {
 
     const prompt = chatCompletionMock.mock.calls[0][1] as string;
     expect(prompt).toContain('person -> walking toward -> motorcycle');
-    expect(prompt).toContain('unknown 1');
+    expect(prompt).toContain('blue motorcycle (left');
+    expect(prompt).toContain('Person details:');
+    expect(prompt).toContain('identity unknown');
+    expect(prompt).toContain('white clothing');
+    expect(prompt).toContain('Motion coverage: 46.9%');
 
     const update = AppDataSource.query.mock.calls.find((c) =>
       String(c[0]).includes('jsonb_set'),

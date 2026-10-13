@@ -8,6 +8,7 @@ import { initializeCron } from './initializers/cron.js';
 import { serviceRegistry } from './services/serviceRegistry.js';
 import { serviceLogService } from './services/serviceLogService.js';
 import { inMemoryState } from './services/inMemoryStateService.js';
+import { shutdownMqttService } from './services/mqttService.js';
 import { AppDataSource } from './database.js';
 import authService from './auth/index.js';
 
@@ -128,6 +129,13 @@ export async function gracefulShutdown(
       logger.info('Timelapse service shut down', 'BOOTSTRAP');
     } catch (err) {
       logger.debug('Timelapse service shutdown skipped (may not be initialized)', 'BOOTSTRAP', err);
+    }
+
+    try {
+      shutdownMqttService();
+      logger.info('MQTT service shut down', 'BOOTSTRAP');
+    } catch (err) {
+      logger.debug('MQTT shutdown skipped (may not be initialized)', 'BOOTSTRAP', err);
     }
 
     await serviceLogService.shutdown();

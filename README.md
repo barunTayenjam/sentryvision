@@ -1,93 +1,171 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/docs/assets/logo.svg" alt="SentryVision" width="180" />
+  <img src="./docs/assets/logo.svg" alt="SentryVision" width="180" />
 </p>
 
-<h1 align="center">SentryVision</h1>
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/barunTayenjam/sentryvision?style=for-the-badge&label=Version&color=00D4AA" alt="Version" />
+  <img src="https://img.shields.io/github/license/barunTayenjam/sentryvision?style=for-the-badge&color=2E8B57" alt="License" />
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker" alt="Docker Ready" />
+  <img src="https://img.shields.io/badge/Self--Hosted-100%25-FF6B35?style=for-the-badge" alt="Self-Hosted" />
+  <img src="https://img.shields.io/badge/Cloud--Free-Yes-28A745?style=for-the-badge" alt="Cloud Free" />
+</p>
 
 <p align="center">
-  <strong>Enterprise-grade home security. Self-hosted. Zero cloud. Total sovereignty.</strong>
+  <img src="https://img.shields.io/github/stars/barunTayenjam/sentryvision?style=for-the-badge&color=FFD700&label=Stars" alt="Stars" />
+  <img src="https://img.shields.io/github/forks/barunTayenjam/sentryvision?style=for-the-badge&color=FF6B35&label=Forks" alt="Forks" />
+  <img src="https://img.shields.io/github/last-commit/barunTayenjam/sentryvision?style=for-the-badge&color=00D4AA&label=Updated" alt="Last Commit" />
 </p>
 
 <p align="center">
   <a href="#-quick-start"><strong>Quick Start</strong></a> •
   <a href="#-architecture"><strong>Architecture</strong></a> •
   <a href="#-capabilities"><strong>Capabilities</strong></a> •
-  <a href="#-docs"><strong>Documentation</strong></a> •
-  <a href="https://github.com/barunTayenjam/casa-visitor-guardian/blob/main/docs/DOCS.md"><strong>Full Docs</strong></a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/version-1.7.1-blue?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/docker-ready-blue?style=flat-square&logo=docker" />
-  <img src="https://img.shields.io/badge/self--hosted-100%25-orange?style=flat-square" />
-  <img src="https://img.shields.io/badge/cloud--free-yes-success?style=flat-square" />
+  <a href="#-documentation"><strong>Documentation</strong></a> •
+  <a href="#-tech-stack"><strong>Tech Stack</strong></a> •
+  <a href="#-contributing"><strong>Contributing</strong></a>
 </p>
 
 ---
 
-## Why SentryVision?
+## 🎯 Why SentryVision?
 
-| Traditional Cloud Cameras | SentryVision |
-|---------------------------|--------------|
-| 📹 Footage leaves your network | 🔒 **100% local — nothing ever leaves** |
-| 💸 Monthly subscriptions forever | 💰 **One-time hardware, zero recurring cost** |
-| ☁️ Vendor lock-in, API changes | 🛠 **You own the stack, you control the roadmap** |
-| 🎯 Basic motion alerts | 🧠 **AI: person/vehicle/animal + face recognition** |
-| 📱 App-only access | 🌐 **Browser, API, Webhooks, Home Assistant** |
-| 📊 Limited retention | 📈 **Unlimited retention, 25+ analytics dimensions** |
+<table>
+<tr>
+<th width="50%">🔒 Traditional Cloud Cameras</th>
+<th width="50%">✨ SentryVision</th>
+</tr>
+<tr>
+<td>📹 Footage leaves your network</td>
+<td>🔒 <strong>100% local — nothing ever leaves</strong></td>
+</tr>
+<tr>
+<td>💸 Monthly subscriptions forever</td>
+<td>💰 <strong>One-time hardware, zero recurring cost</strong></td>
+</tr>
+<tr>
+<td>☁️ Vendor lock-in, API changes</td>
+<td>🛠 <strong>You own the stack, you control the roadmap</strong></td>
+</tr>
+<tr>
+<td>🎯 Basic motion alerts</td>
+<td>🧠 <strong>AI: person/vehicle/animal + face recognition + threat assessment</strong></td>
+</tr>
+<tr>
+<td>📱 App-only access</td>
+<td>🌐 <strong>Browser, API, Webhooks, Home Assistant, MQTT</strong></td>
+</tr>
+<tr>
+<td>📊 Limited retention</td>
+<td>📈 <strong>Unlimited retention, 25+ analytics dimensions</strong></td>
+</tr>
+</table>
 
-**Built for the self-hosted community.** Runs on a Raspberry Pi 4, Intel NUC, or any Docker-capable hardware. One-click install. Production-grade.
+**Built for the self-hosted community.** Runs on any Docker-capable hardware — Intel NUC, mini-PC, homelab server. One-command install. Production-grade.
 
 ---
 
-## <a id="capabilities"></a>🚀 Capabilities
+## 🚀 <a id="capabilities"></a>Capabilities
 
-### Real-Time Intelligence
-| Feature | Description |
-|---------|-------------|
-| **Multi-Object Detection** | YOLOv8n ONNX — person, car, dog, cat @ 215ms inference |
-| **Human Verification** | Tiered pipeline: YOLO ≥0.90 → Face → MediaPipe pose → score floor |
-| **Face Recognition** | InsightFace ArcFace, 30s identity cache, visitor timeline |
-| **ByteTracker** | Kalman filter multi-object tracking with lifecycle management |
-| **MotionGate** | MOG2 background subtraction (500px threshold, 10-frame warmup) |
+<details open>
+<summary><strong>🔴 Real-Time Intelligence</strong></summary>
 
-### Live Streaming
-- **WebRTC** — Sub-200ms latency on LAN
-- **MSE/fMP4** — Works through Cloudflare Tunnel, Tailscale, VPN (TCP-only)
-- **Canvas Fallback** — Last resort, zero-config
-- **Adaptive FPS** — Scales by viewer count (1–30 FPS)
+| Feature | Description | Performance |
+|---------|-------------|-------------|
+| **Dual-Chain Object Detection** | QAT INT8: CrowdHuman v8s (persons) + COCO QAT (vehicles/animals) | **37–39ms inference** |
+| **Motion ROI Crop-Zoom** | Frigate-style: YOLO runs on motion region only | Cuts inference area ~80% |
+| **Human Verification** | Tiered: YOLO ≥0.90 → Face → MediaPipe pose → score floor | Discards non-human tracks |
+| **Face Recognition** | InsightFace ArcFace 512-dim embeddings, 30s identity cache | Visitor timeline + known faces |
+| **Multi-Object Tracking** | ByteTracker (Kalman filter, lifecycle: started/updated/ended) | Stable IDs across frames |
+| **Motion Gating** | MOG2 background subtraction (pixel threshold, 10-frame warmup) | YOLO fires only on motion |
 
-### Analytics & Intelligence
-- **Daily Insights Dashboard** — 25+ dimensions: detection patterns, dwell time, visitor frequency, camera health
-- **AI Chat (Ask)** — Natural language queries: *"Show me all cars after 10pm last week"*
-- **Event Timeline** — Smart filters, related events, AI scene analysis
+</details>
+
+<details>
+<summary><strong>📺 Live Streaming (go2rtc)</strong></summary>
+
+| Protocol | Latency | Use Case |
+|----------|---------|----------|
+| **WebRTC** | **<200ms** LAN | Desktop, mobile — lowest latency |
+| **MSE/fMP4** | ~500ms | VPN, Tailscale, Cloudflare Tunnel (TCP-only) |
+| **HLS** | ~2s | Wide compatibility, CDN-friendly |
+| **Canvas Fallback** | ~1s | Zero-config last resort (Socket.io JPEG) |
+
+**Adaptive quality**: grid tiles pull the 720p substream; focused/fullscreen pulls native resolution. Automatic — no configuration needed.
+
+</details>
+
+<details>
+<summary><strong>🧠 AI & Analytics</strong></summary>
+
+- **Semantic Event Search** — pgvector + MiniLM embeddings: *"person in red jacket at front door last week"*
+- **AI Chat (Ask)** — Natural language queries with full event-archive access: *"Show me all cars after 10pm last week"*
+- **Scene Relations** — RelateAnything sidecar (DINOv3): spatial relationships between objects ("person *near* vehicle")
+- **Threat Assessment** — LLM-grounded analysis using stored scene relations, not raw pixel narration
+- **Daily Digest** — Auto-generated daily summaries with highlights
+- **Review Workflow** — Event-driven segment triage (confirm/dismiss/escalate)
 - **Timelapse** — Full-resolution stitching from detection snapshots
+- **Daily Insights** — 25+ dimensions: detection patterns, dwell time, visitor frequency
 
-### Enterprise Features
-- **Multi-User + RBAC** — Admin/User/Viewer roles
-- **TOTP MFA** — Google Authenticator compatible
-- **JWT Auth** — 15min access / 7day refresh tokens
+</details>
+
+<details>
+<summary><strong>🏢 Enterprise & Integration</strong></summary>
+
+- **Multi-User + RBAC** — Admin/User/Viewer roles with granular permissions
+- **TOTP MFA** — Google Authenticator / Authy compatible
+- **JWT Auth** — 15min access / 7day refresh with rotation + 401 auto-refresh
+- **Home Assistant** — MQTT discovery, webhooks, camera entities
+- **Webhooks + MQTT** — Real-time event push to any system
 - **Audit Logging** — Full trail of sensitive operations
 - **Rate Limiting** — Per-endpoint protection
-- **Helmet.js** — Security headers by default
+- **Security Headers** — Helmet.js (CSP, HSTS, X-Frame-Options)
+
+</details>
 
 ---
 
-## <a id="architecture"></a>🏗 Architecture
+## 🏗 <a id="architecture"></a>Architecture
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Browser   │◄───►│  Backend    │◄───►│  OpenCV Svc │◄───►│   go2rtc    │
-│  WebRTC/MSE │     │  Express 5  │     │   Flask     │     │  RTSP Proxy │
-│    :9753    │     │    :9753    │     │    :8084    │     │ :8555/:1984 │
-└─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
-                           │                                        │
-                    ┌──────▼──────┐                         ┌────────▼────────┐
-                    │ PostgreSQL  │                         │    Camera RTSP  │
-                    │   :5432     │                         │   (TP-LINK,     │
-                    │  (26 migr)  │                         │   Reolink, etc) │
-                    └─────────────┘                         └─────────────────┘
+```mermaid
+graph TB
+    subgraph Client["🌐 Client Layer"]
+        B["Browser<br/>(WebRTC / MSE / HLS)"]
+        HA["🏠 Home Assistant<br/>(MQTT / Webhooks)"]
+    end
+
+    subgraph Gateway["🚪 Backend :9753"]
+        API["Express 5 + TypeORM<br/>JWT + MFA + RBAC"]
+        WS["Socket.io<br/>(live frames + events)"]
+    end
+
+    subgraph Vision["👁 Vision Service :8084"]
+        DET["Detection Pipeline<br/>(Python / Flask)"]
+        YOLO["YOLOv8 QAT INT8<br/>37ms inference"]
+        FACE["InsightFace<br/>ArcFace"]
+        TRACK["ByteTracker<br/>(Kalman)"]
+        REL["Relations Sidecar :8085<br/>(DINOv3 scene graphs)"]
+    end
+
+    subgraph Stream["📡 Stream Plane"]
+        G2R["go2rtc<br/>:8555 WebRTC / :1984 API"]
+        CAM["📷 IP Cameras<br/>(RTSP)"]
+    end
+
+    subgraph Data["💾 Data Layer"]
+        PG[("PostgreSQL 15+<br/>+ pgvector")]
+    end
+
+    B <-->|"WebRTC / MSE"| G2R
+    B <-->|"API / Socket.io"| API
+    HA <-->|"MQTT"| API
+    API <-->|"HTTP + WS :9090"| DET
+    API <-->|"SQL"| PG
+    DET --- YOLO
+    DET --- FACE
+    DET --- TRACK
+    DET <-->|"HTTP"| REL
+    G2R <-->|"RTSP"| CAM
+    DET <-->|"RTSP via go2rtc"| G2R
 ```
 
 ### Design Decisions That Matter
@@ -96,97 +174,122 @@
 |----------|-----------|
 | **Single Container (Backend + Frontend)** | One deploy target, simpler networking, smaller attack surface |
 | **No Redis by Default** | In-memory cache saves ~150MB RAM; Redis optional (`REDIS_DISABLED=false`) |
-| **go2rtc as RTSP Gateway** | Cameras allow 1 RTSP connection; go2rtc holds it, Python consumes re-stream |
+| **go2rtc as RTSP Gateway** | Cameras allow 1 RTSP session; go2rtc holds it, all consumers fan out from it |
 | **Python for Vision, Node.js for Web** | Correct two-runtime split: Python owns OpenCV pipeline, Node owns API/DB |
-| **WebRTC → MSE → Canvas** | Progressive enhancement: best latency → broad compatibility → guaranteed fallback |
+| **WebRTC → MSE → HLS → Canvas** | Progressive enhancement: best latency → compatibility → guaranteed fallback |
+| **720p Detection Feed** | Pixel-bound YOLO accuracy — 640×360 starves small/distant persons |
 
-### Detection Pipeline (Runs Entirely in Python)
+### Detection Pipeline
 
-```
-Camera RTSP → go2rtc → FFmpegReader (BGR24 @ 640×360, 5 FPS)
-    → MotionGate (MOG2, 500px threshold, 10-frame warmup)
-    → YOLOv8n ONNX (COCO filtered to security classes)
-    → ByteTracker (Kalman filter, track lifecycle: started/updated/ended)
-    → IdentityEnrichment (InsightFace ArcFace, 30s cache)
-    → HumanVerifier (tiered: YOLO ≥0.90 → face → MediaPipe → floor 0.55)
-    → WebSocketPublisher → Node.js → PostgreSQL
+```mermaid
+flowchart LR
+    CAM["📷 RTSP"] --> G2R["go2rtc"]
+    G2R -->|"720p transcode"| FF["FFmpegReader<br/>BGR24 @ 720p"]
+    FF --> MG["MotionGate<br/>MOG2"]
+    MG -->|"motion detected"| ROI["ROI Crop-Zoom<br/>(motion region only)"]
+    ROI --> YOLO["YOLO QAT INT8<br/>37ms"]
+    YOLO --> BT["ByteTracker<br/>(Kalman)"]
+    BT --> IE["IdentityEnrichment<br/>(ArcFace, 30s cache)"]
+    IE --> HV["HumanVerifier<br/>(tiered: YOLO→Face→Pose)"]
+    HV -->|verified| PUB["WebSocketPublisher"]
+    HV -->|rejected| X["❌ Discarded"]
+    PUB --> NODE["Node.js Gateway"]
+    NODE --> PG[("PostgreSQL<br/>+ pgvector embeddings")]
+    NODE --> UI["🌐 Browser<br/>Socket.io"]
 ```
 
 ---
 
-## <a id="quick-start"></a>⚡ Quick Start
+## ⚡ <a id="quick-start"></a>Quick Start
 
-### One-Line Install (Recommended)
+### One-Line Install
 ```bash
-curl -fsSL https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/barunTayenjam/sentryvision/main/scripts/install.sh | bash
 ```
 Auto-detects LAN IP, generates secrets, builds containers, verifies health. Add cameras from the Web UI.
 
 ### Docker Compose (Manual)
 ```bash
-git clone https://github.com/barunTayenjam/casa-visitor-guardian.git
-cd casa-visitor-guardian
-cp .env.example .env   # Edit with your secrets
+git clone https://github.com/barunTayenjam/sentryvision.git
+cd sentryvision
+cp .env.example .env    # Edit with your secrets
 docker compose up -d --build
 ```
 
 ### Local Development
 ```bash
-# Backend (API + static files + Socket.io)
-cd server && npm install && npm run dev    # :9753
+# Backend (API + Socket.io, :9753)
+cd server && npm install && npm run dev
 
-# Frontend (Next dev server, proxies to :9753)
-cd frontend-next && npm install && npm run dev  # :5173
+# Frontend (Next.js dev server, :5173, proxies to :9753)
+cd frontend-next && npm install && npm run dev
 ```
 
 ### Default Credentials
 | Role | Username | Password |
 |------|----------|----------|
-| Admin | `admin` | `admin123` *(change on first login)* |
+| Admin | `admin` | `admin123` *(change immediately)* |
 
 ---
 
 ## 📸 Screenshots
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/docs/assets/dashboard.png" alt="Dashboard" width="45%" />
-  <img src="https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/docs/assets/events.png" alt="Events" width="45%" />
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/docs/assets/analytics.png" alt="Analytics" width="45%" />
-  <img src="https://raw.githubusercontent.com/barunTayenjam/casa-visitor-guardian/main/docs/assets/ask.png" alt="AI Chat" width="45%" />
-</p>
+> Screenshots coming soon — see [docs/assets/](./docs/assets/) for current captures.
 
 ---
 
-## <a id="docs"></a>📚 Documentation
+## 📚 <a id="documentation"></a>Documentation
 
 | Document | Description |
 |----------|-------------|
 | [`DOCS.md`](./docs/DOCS.md) | Complete documentation index |
 | [`PRODUCT.md`](./docs/PRODUCT.md) | Product vision, users, capabilities |
-| [`API-SOURCE-OF-TRUTH.md`](./docs/API-SOURCE-OF-TRUTH.md) | All API endpoints |
-| [`BACKEND.md`](./docs/BACKEND.md) | Express API, routes, services |
-| [`FRONTEND.md`](./docs/FRONTEND.md) | React app, pages, services |
+| [`API-SOURCE-OF-TRUTH.md`](./docs/API-SOURCE-OF-TRUTH.md) | All API endpoints with schemas |
+| [`BACKEND.md`](./docs/BACKEND.md) | Express API, routes, services, middleware |
+| [`FRONTEND.md`](./docs/FRONTEND.md) | React app, pages, services, routing |
 | [`DATABASE.md`](./docs/DATABASE.md) | Schema, migrations, queries |
-| [`OPENCV-SERVICE.md`](./docs/OPENCV-SERVICE.md) | Python detection pipeline |
-| [`SECURITY.md`](./docs/SECURITY.md) | Auth, rate limiting, headers |
-| [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md) | Dev workflow, conventions |
+| [`OPENCV-SERVICE.md`](./docs/OPENCV-SERVICE.md) | Python detection pipeline details |
+| [`SECURITY.md`](./docs/SECURITY.md) | Auth, rate limiting, headers, hardening |
+| [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md) | Dev workflow, conventions, PR process |
 
 ---
 
-## 🛠 Tech Stack
+## 🛠 <a id="tech-stack"></a>Tech Stack
 
-| Layer | Technology | Version |
-|-------|------------|---------|
-| **Frontend** | Next.js + React + TypeScript + TailwindCSS + Radix UI | 14.2 / 18 / 5 / 3.4 / 1.1 |
-| **Backend** | Express + TypeScript + TypeORM + Socket.io | 5.2 / 5.5 / 0.3 / 4.7 |
-| **OpenCV Service** | Flask + OpenCV + ONNX Runtime + InsightFace | 3.0 / 4.8+ / 1.15+ / 0.7 |
-| **RTSP Proxy** | go2rtc | 1.9.14 |
-| **Database** | PostgreSQL | 15+ |
-| **Cache** | In-memory (Redis optional) | — |
-| **Container** | Docker + Docker Compose | 24+ / 2.24+ |
+<table>
+<tr>
+<th align="left">Layer</th>
+<th align="left">Technology</th>
+</tr>
+<tr>
+<td><strong>Frontend</strong></td>
+<td>Next.js 14 · React 18 · TypeScript · TailwindCSS · Radix UI (shadcn/ui) · Zustand · TanStack Query · Vitest</td>
+</tr>
+<tr>
+<td><strong>Backend</strong></td>
+<td>Express 5 · TypeScript · TypeORM · Socket.io · JWT + TOTP MFA · Helmet.js · Jest</td>
+</tr>
+<tr>
+<td><strong>Vision Service</strong></td>
+<td>Python · Flask · OpenCV · ONNX Runtime INT8 (QAT) · InsightFace ArcFace · ByteTracker · MediaPipe</td>
+</tr>
+<tr>
+<td><strong>Relations Sidecar</strong></td>
+<td>Python · RelateAnything · DINOv3 scene graphs · YOLO-World + CLIP</td>
+</tr>
+<tr>
+<td><strong>Stream Plane</strong></td>
+<td>go2rtc 1.9.14 (RTSP → WebRTC / MSE / HLS gateway)</td>
+</tr>
+<tr>
+<td><strong>Database</strong></td>
+<td>PostgreSQL 15+ · pgvector (semantic search)</td>
+</tr>
+<tr>
+<td><strong>Infrastructure</strong></td>
+<td>Docker · Docker Compose · optional MQTT broker</td>
+</tr>
+</table>
 
 ---
 
@@ -195,8 +298,8 @@ cd frontend-next && npm install && npm run dev  # :5173
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
 | **RAM** | 2 GB | 4 GB+ |
-| **CPU** | 2 cores (ARM64/x64) | 4 cores |
-| **Storage** | 10 GB | 50 GB+ (for retention) |
+| **CPU** | 2 cores (ARM64/x64) | 4+ cores (QAT INT8 benefits from AVX2) |
+| **Storage** | 10 GB | 50 GB+ (retention + snapshots) |
 | **Network** | LAN | Gigabit LAN + VPN/Tailscale |
 
 ---
@@ -208,32 +311,25 @@ Key `.env` variables (auto-generated by install script):
 ```bash
 # Database
 POSTGRES_PASSWORD=<secure-random>
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=sentryvision
-DB_USER=sentryvision
 
 # Auth
 JWT_ACCESS_SECRET=<secure-random>
 JWT_REFRESH_SECRET=<secure-random>
-TOTP_SECRET=<secure-random>
 
 # Services
 OPENCV_SERVICE_URL=http://opencv:8084
 GO2RTC_PUBLIC_URL=http://go2rtc:1984
-REDIS_DISABLED=true
 
-# Detection
-PERSON_MIN_CONFIDENCE=0.55   # floor for a person event to persist
-PERSON_MIN_TRACK_HITS=3      # track sightings required before persisting a person
-PERSON_DEDUPE_SHIFT_PX=18    # bbox shift below which a sighting is the same person
-DEFAULT_FPS=2
-OPENCV_CPU_LIMIT=6.0
+# Detection tuning
+PERSON_MIN_CONFIDENCE=0.55     # floor for a person event to persist
+PERSON_MIN_TRACK_HITS=3        # sightings before persisting a person
+YOLO_MIN_INTERVAL_MS=2000      # cooldown between YOLO passes (motion storms)
 
-# Camera RTSP (set via Web UI or cameras.json)
+# Cameras (set via Web UI or .env)
 CAM1_RTSP_URL=rtsp://user:pass@ip:554/stream1
-CAM2_RTSP_URL=rtsp://user:pass@ip:554/stream1
 ```
+
+Full reference: [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md)
 
 ---
 
@@ -241,52 +337,54 @@ CAM2_RTSP_URL=rtsp://user:pass@ip:554/stream1
 
 ```bash
 # Frontend
-npm run lint          # ESLint
-npm run typecheck     # TypeScript check
-cd frontend-next && npm run test   # Vitest unit tests
+npm run lint && npm run typecheck && npm run test
 
 # Backend
-cd server && npm run lint:server
-cd server && npm run build
-cd server && npm run test:server   # Jest
+cd server && npm run lint:server && npm run build && npm run test:server
 
-# Python detection pipeline (needs the opencv image for cv2)
-docker run --rm -v $(pwd)/opencv-service:/app:ro -w /app sentryvision-opencv:latest \
-  sh -c "pip install -q pytest pytest-asyncio && python -m pytest tests -q"
+# Python detection pipeline (in container)
+docker exec sentryvision-opencv python -m pytest tests -q
 ```
 
 ---
 
-## 🤝 Contributing
+## 🤝 <a id="contributing"></a>Contributing
 
-We welcome PRs from the self-hosted community. See [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md) for:
+PRs welcome from the self-hosted community. See [`CONTRIBUTING.md`](./docs/CONTRIBUTING.md):
 
-- Code conventions (TypeScript, file naming, imports)
-- Branch/PR workflow
-- Testing requirements
-- Architecture rules (detection in Python only, etc.)
+- **Conventions** — TypeScript strict, PascalCase components, MVC routes
+- **Testing** — unit + integration, coverage gates, TDD for pipeline changes
+- **Architecture rules** — detection runs in Python only; Node owns API/DB; no cross-layer coupling
 
 ---
 
 ## 📄 License
 
-MIT License — see [`LICENSE`](./LICENSE) for details.
+MIT — see [`LICENSE`](./LICENSE).
 
 ---
 
 ## 🙏 Acknowledgments
 
-Built on the shoulders of giants:
-- [YOLOv8](https://github.com/ultralytics/ultralytics) — Ultralytics
-- [InsightFace](https://github.com/deepinsight/insightface) — DeepInsight
-- [go2rtc](https://github.com/AlexxIT/go2rtc) — AlexxIT
-- [ByteTrack](https://github.com/ifzhang/ByteTrack) — IFZHANG
-- [shadcn/ui](https://ui.shadcn.com/) — shadcn
-- [Radix UI](https://www.radix-ui.com/) — Radix
+| Project | What it gives us |
+|---------|------------------|
+| [YOLOv8](https://github.com/ultralytics/ultralytics) · [ByteTrack](https://github.com/ifzhang/ByteTrack) | Detection + tracking |
+| [InsightFace](https://github.com/deepinsight/insightface) | Face recognition |
+| [go2rtc](https://github.com/AlexxIT/go2rtc) | RTSP → WebRTC/MSE/HLS gateway |
+| [RelateAnything](https://github.com/WongToby/RelateAnything) | Scene relation graphs |
+| [shadcn/ui](https://ui.shadcn.com/) · [Radix UI](https://www.radix-ui.com/) | UI components |
 
 ---
 
 <p align="center">
-  <strong>Star this repo if SentryVision secures your home.</strong><br />
-  <em>Made with ❤️ for the self-hosted community.</em>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00D4AA,100:0a0a0b&height=100&section=footer" width="100%" />
+</p>
+
+<p align="center">
+  <strong>⭐ Star this repo if SentryVision secures your home.</strong><br/>
+  <sub>Made with ❤️ for the self-hosted community.</sub>
+</p>
+
+<p align="center">
+  <a href="#sentryvision">↑ Back to top</a>
 </p>

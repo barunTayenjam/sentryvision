@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">SentryVision logo — Watch House, animated</title>
+  <!-- Primary colour mark with pupil pulse animation.
+       Roof (shelter) = slate ink #1E293B;
+       pupil (vigilance) = mint #00D4AA.
+       Animation: pupil gently pulses (scale 1→1.1→1) every 3s — "the eye that watches". -->
+  <style>
+    @keyframes sentry-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.85; }
+    }
+    .pupil {
+      transform-origin: 128px 170px;
+      animation: sentry-pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pupil { animation: none; }
+    }
+  </style>
+  <path fill="#1E293B" d="M16 166 L128 54 L240 166 L177 166 L128 117 L79 166 Z"/>
+  <circle class="pupil" cx="128" cy="170" r="32" fill="#00D4AA"/>
+</svg>

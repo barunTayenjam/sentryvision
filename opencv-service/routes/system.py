@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from datetime import datetime
 import os
 
@@ -67,3 +67,42 @@ def status():
         'detectionMode': 'yolo',
         'classNames': len(state.class_names)
     })
+
+
+@system_bp.route('/embed', methods=['POST'])
+def embed():
+    """Text embedding endpoint for semantic search.
+
+    384-dim all-MiniLM-L6-v2 ONNX vectors; deterministic hash fallback when
+    the model files are absent (constrained hosts).
+    """
+    body = request.get_json(silent=True) or {}
+    text = (body.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'text parameter required'}), 400
+
+    try:
+        from embedder import get_embedder
+
+        embedder = get_embedder()
+        if not embedder.loaded:
+            embedder.load()
+        return jsonify({'embedding': embedder.embed(text), 'dim': 384, 'model': 'minilm-l6-v2'})
+    except Exception as e:
+        # Hash fallback — stable per text, uncalibrated semantics.
+        import hashlib
+        import math
+
+        seed = int(hashlib.sha256(text.encode('utf-8')).hexdigest()[:8], 16)
+        vec = []
+        norm_sq = 0.0
+        for i in range(384):
+            seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+            val = (seed / 0x7FFFFFFF) * 2.0 - 1.0
+            vec.append(val)
+            norm_sq += val * val
+
+        norm = math.sqrt(norm_sq) or 1.0
+        normalized = [round(v / norm, 6) for v in vec]
+
+        return jsonify({'embedding': normalized, 'dim': 384, 'model': 'hash-fallback'})

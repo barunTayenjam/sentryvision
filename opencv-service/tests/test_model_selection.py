@@ -47,7 +47,23 @@ class TestExplicitPreference:
     def test_every_entry_names_a_known_model_and_type(self):
         for name, model_type in resolve_model_priority("yolov8m", False, 8):
             assert name in AVAILABLE_MODELS
-            assert model_type in ("yolov8", "yolov5", "yolov4")
+            assert model_type in ("yolov8", "yolov5", "yolov4", "yolov8-qat")
+
+    def test_qat_model_opt_in_resolves_with_qat_type(self):
+        """YOLO_MODEL=crowdhuman_qat_640x384 selects the person-specialised
+        QAT model and its decoder type — the opt-in must actually switch
+        the decode path, not just the weights."""
+        order = resolve_model_priority("crowdhuman_qat_640x384", gpu_available=False, free_memory_gb=8)
+
+        assert order[0] == ("crowdhuman_qat_640x384.onnx", "yolov8-qat")
+        # Fallback chain still reaches the COCO models
+        assert "yolov8n.onnx" in [name for name, _ in order]
+
+    def test_qat_model_absent_from_default_chain(self):
+        """Unset YOLO_MODEL must never pick QAT — the default stays COCO."""
+        for pref in (None, ""):
+            names = [name for name, _ in resolve_model_priority(pref, False, 8)]
+            assert "crowdhuman_qat_640x384.onnx" not in names
 
     def test_case_and_extension_are_tolerated(self):
         assert resolve_model_priority("YOLOv8M.onnx", False, 8)[0][0] == "yolov8m.onnx"

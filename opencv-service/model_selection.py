@@ -52,6 +52,12 @@ AVAILABLE_MODELS = {
     # person-specialised weights are a different axis: better recall on
     # people, zero classes lost that this pipeline actually alerts on.
     "crowdhuman_qat_640x384.onnx": "yolov8-qat",
+    # Same QAT family, v8s backbone (11.5MB): opt-in accuracy variant at
+    # ~3x v8n latency (112ms ORT vs 37ms). Same 640x384 input and decode.
+    "crowdhuman_v8s_qat_640x384.onnx": "yolov8-qat",
+    # COCO-trained QAT (3.5MB, 80 classes): restores vehicles/animals at
+    # ~37ms ORT. Person recall TBD vs crowdhuman — benchmark before choosing.
+    "coco_qat_640x384.onnx": "yolov8-qat",
 }
 
 _GPU_CHAIN = ["yolov8n.onnx", "yolov8s.onnx", "yolov8m.onnx", "yolov5n.onnx"]

@@ -93,6 +93,7 @@ __pycache__/
 
 # Camera configuration (contains RTSP credentials)
 server/cameras.json
+opencv-service/cameras.json
 
 # AI tool artifacts
 .aic-logs/

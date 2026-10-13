@@ -11,8 +11,8 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/barunTayenjam/casa-visitor-guardian.git
-cd casa-visitor-guardian
+git clone https://github.com/barunTayenjam/sentryvision.git
+cd sentryvision
 cp .env.example .env        # Edit with your secrets
 npm install
 npm run dev:full             # Starts frontend + backend

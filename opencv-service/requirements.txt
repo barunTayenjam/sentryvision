@@ -9,4 +9,8 @@ Pillow>=10.0.0
 websockets>=16.0
 insightface>=0.7.3,<0.8
 onnxruntime>=1.15.0
+protobuf==4.25.3
+onnx==1.16.0
+mediapipe==0.10.14
 psutil>=5.9.0
+tokenizers>=0.20

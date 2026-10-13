@@ -212,13 +212,13 @@ export const EventDetailPanel: React.FC<EventDetailPanelProps> = ({
   const relationBoxRect = (index: number) => {
     const rb = relationBoxes?.[index];
     if (rb) {
-      return {
-        x: rb.x * imageScale.scaleX + imageScale.offsetX,
-        y: rb.y * imageScale.scaleY + imageScale.offsetY,
-        w: rb.width * imageScale.scaleX,
-        h: rb.height * imageScale.scaleY,
-        label: rb.class,
-      };
+    return {
+      x: rb.x * imageScale.scaleX + imageScale.offsetX,
+      y: rb.y * imageScale.scaleY + imageScale.offsetY,
+      w: rb.width * imageScale.scaleX,
+      h: rb.height * imageScale.scaleY,
+      label: rb.color ? `${rb.color} ${rb.class}` : rb.class,
+    };
     }
     const det = event?.detections?.[index];
     if (!det) return null;

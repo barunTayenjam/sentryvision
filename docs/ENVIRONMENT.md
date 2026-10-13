@@ -27,6 +27,32 @@ cp .env.example .env
 | `REDIS_DISABLED` | No | `true` | Set `false` to enable Redis cache |
 | `REDIS_URL` | No | — | Redis connection string (if enabled) |
 
+## MQTT (optional, Home Assistant integration)
+
+Set `MQTT_ENABLED=true` to publish camera state and detection events to an MQTT
+broker. All vars are optional except `MQTT_HOST` when enabled; startup validation
+fails fast if `MQTT_ENABLED=true` without `MQTT_HOST`.
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `MQTT_ENABLED` | No | `false` | Enable the MQTT publisher |
+| `MQTT_HOST` | Yes (if enabled) | — | Broker host/hostname |
+| `MQTT_PORT` | No | `1883` | Broker port |
+| `MQTT_TOPIC_PREFIX` | No | `sentryvision` | Root topic for all published messages |
+| `MQTT_USER` | No | — | Broker username |
+| `MQTT_PASSWORD` | No | — | Broker password |
+| `MQTT_QOS` | No | `0` | Quality of service (0/1/2) |
+
+### Published topics
+
+| Topic | Payload | Retained | Meaning |
+|-------|---------|----------|---------|
+| `{prefix}/availability` | `online` / `offline` | yes | SentryVision broker availability (last-will `offline`) |
+| `{prefix}/{camera}/person` | `ON` / `OFF` | yes | Person present on camera |
+| `{prefix}/{camera}/status` | `online` / `offline` / `warning` | yes | Camera stream health |
+| `{prefix}/{camera}/events` | JSON | no | Detection event (id, camera, type, confidence, timestamp) |
+| `homeassistant/binary_sensor/sentryvision_{camera}_person/config` | JSON | yes | HA discovery: person occupancy binary sensor per camera |
+
 ## PostgreSQL Tuning
 
 | Variable | Default | Purpose |

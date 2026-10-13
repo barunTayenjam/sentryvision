@@ -161,10 +161,30 @@ services:
       - OPENCV_API_TOKEN=${OPENCV_API_TOKEN:-}
       - PERSON_MIN_TRACK_HITS=${PERSON_MIN_TRACK_HITS:-3}
       - PERSON_MIN_CONFIDENCE=${PERSON_MIN_CONFIDENCE:-0.55}
-      - HUMAN_VERIFIER_SCORE=${HUMAN_VERIFIER_SCORE:-0.55}
-      - HUMAN_VERIFIER_NIGHT_SCORE=${HUMAN_VERIFIER_NIGHT_SCORE:-0.55}
+      - HUMAN_VERIFIER_SCORE=${HUMAN_VERIFIER_SCORE:-0.35}
+      - HUMAN_VERIFIER_NIGHT_SCORE=${HUMAN_VERIFIER_NIGHT_SCORE:-0.35}
+      # Dual QAT chain: v8s (persons) + coco_qat (vehicles/animals).
+      # Benchmarked vs AI truth on 3115 events (compare_models_ai_truth.py):
+      #   COCO fp32   recall 0.780 / F1 0.787 / 55ms
+      #   v8n  QAT    recall 0.864 / F1 0.813 / 37ms (ORT)
+      #   coco_qat    recall 0.868 / F1 0.822 / 39ms (ORT) + all classes
+      #   v8s  QAT    recall 0.884 / F1 0.828 / 112ms (ORT)
+      # QAT_ORT=1 executes QDQ graphs INT8-native via onnxruntime (already
+      # installed for ArcFace) instead of cv2.dnn's fp32 dequantize (2.3x).
+      - YOLO_MODEL=${YOLO_MODEL:-crowdhuman_v8s_qat_640x384}
+      - YOLO_QAT_PERSON_THRESH=${YOLO_QAT_PERSON_THRESH:-0.48}
+      - YOLO_QAT_MIN_BOX_SIDE=${YOLO_QAT_MIN_BOX_SIDE:-20}
+      - YOLO_QAT_MIN_BOX_AREA=${YOLO_QAT_MIN_BOX_AREA:-600}
+      - QAT_ORT=${QAT_ORT:-1}
+      - QAT_AUX=${QAT_AUX:-coco_qat}
       - OMP_NUM_THREADS=2
       - OPENCV_NUM_THREADS=2
+      # Resource discipline (added for the load fix): ORT sessions are
+      # intra-op capped at 2 threads in code (OrtRunner + MiniLM embedder) so
+      # inference cannot fan out across all 12 host cores; YOLO re-run gap
+      # raised to 2s so motion storms (e.g. parked truck) skip duplicate
+      # inference instead of burning a full pass per detection frame.
+      - YOLO_MIN_INTERVAL_MS=${YOLO_MIN_INTERVAL_MS:-2000}
     devices:
       - /dev/dri:/dev/dri
     volumes:

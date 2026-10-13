@@ -16,7 +16,9 @@ const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
  * fixture p50=2.4px, real people p50=127.5px.
  */
 const PERSON_SHIFT_PX = 18;
-const PERSON_WINDOW_MS = 10 * 60 * 1000;
+// 3min, not 10: a person returning to the same spot within 10min (courier,
+// resident) was silently swallowed. 3min still collapses a single visit.
+const PERSON_WINDOW_MS = 3 * 60 * 1000;
 
 function envNumber(raw: string | undefined, fallback: number): number {
   const parsed = Number(raw);
@@ -64,7 +66,6 @@ export class TrackDeduplicator {
     if (ev.event !== 'track_started' && ev.event !== 'track_updated') return false;
 
     const isPerson = ev.class === 'person';
-    const isVehicleClass = VEHICLE_CLASSES.includes(ev.class);
 
     // A person event with no snapshot has nothing to show.
     if (isPerson && !ev.filePath) return false;
@@ -84,7 +85,13 @@ export class TrackDeduplicator {
       return false;
     }
 
-    const shouldPersist = isPerson || isVehicleClass ? !!ev.filePath : true;
+    // Every class now requires a snapshot: Python writes the JPEG once the
+    // track's hit/confidence gate opens, and the first event carrying that
+    // path is the one persisted. Without this, motion rows persisted on
+    // track_started (tracklet_len 1-2) — before Python's snapshot gate fired
+    // — locked the track with file_path NULL forever ("No image" on the
+    // events page).
+    const shouldPersist = !!ev.filePath;
     if (shouldPersist) {
       this.lastSavedPerCameraClass.set(sceneKey, { bbox: bboxOf(ev), ts: now });
     }

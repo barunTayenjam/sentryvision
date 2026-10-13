@@ -9,8 +9,8 @@ Config:
     HUMAN_VERIFIER_ENABLED    (default 1)  master switch
     HUMAN_VERIFIER_KEEP_BACK_FACING (default 1)  keep persons with no face
     HUMAN_VERIFIER_MIN_KEYPOINTS (default 3)  min pose keypoints to count as human
-    HUMAN_VERIFIER_SCORE      (default 0.75) YOLO score floor when no face/pose evidence
-    HUMAN_VERIFIER_NIGHT_SCORE (default 0.55) score floor during night hours
+    HUMAN_VERIFIER_SCORE      (default 0.35) YOLO score floor when no face/pose evidence
+    HUMAN_VERIFIER_NIGHT_SCORE (default 0.35) score floor during night hours
     HUMAN_VERIFIER_NIGHT_START (default 22)   night start hour, local time
     HUMAN_VERIFIER_NIGHT_END   (default 6)    night end hour, local time
 """
@@ -32,8 +32,8 @@ class HumanVerifier:
         self.enabled = int(os.environ.get("HUMAN_VERIFIER_ENABLED", "1"))
         self.keep_back_facing = int(os.environ.get("HUMAN_VERIFIER_KEEP_BACK_FACING", "1"))
         self.min_keypoints = int(os.environ.get("HUMAN_VERIFIER_MIN_KEYPOINTS", "3"))
-        self.score_floor = float(os.environ.get("HUMAN_VERIFIER_SCORE", "0.55"))
-        self.night_score_floor = float(os.environ.get("HUMAN_VERIFIER_NIGHT_SCORE", "0.55"))
+        self.score_floor = float(os.environ.get("HUMAN_VERIFIER_SCORE", "0.35"))
+        self.night_score_floor = float(os.environ.get("HUMAN_VERIFIER_NIGHT_SCORE", "0.35"))
         self.night_start = int(os.environ.get("HUMAN_VERIFIER_NIGHT_START", "22"))
         self.night_end = int(os.environ.get("HUMAN_VERIFIER_NIGHT_END", "6"))
 

@@ -7,6 +7,7 @@ import type { Camera } from '@/types/security';
 import { useCameraStream } from '@/hooks/useCameraStream';
 import { nextFocusId } from '@/lib/slideshow';
 import { cn } from '@/lib/utils';
+import { streamSrcForTile } from '@/lib/streamSrc';
 
 function LiveCameraTile({
   camera,
@@ -29,7 +30,7 @@ function LiveCameraTile({
     handlePointerMove,
     handlePointerUp,
     handleStreamStart,
-  } = useCameraStream({ camera });
+  } = useCameraStream({ camera, streamSrc: streamSrcForTile(camera.id, focused) });
 
   return (
     <motion.div

@@ -338,4 +338,31 @@ router.post(
   },
 );
 
+router.get(
+  '/semantic',
+  optionalAuth,
+  validateQuery(
+    z.object({
+      q: z.string().min(1).max(500),
+      cameraId: z.string().optional(),
+      eventType: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(100).optional(),
+    }),
+  ),
+  async (req: Request, res: Response) => {
+    try {
+      const { q, cameraId, eventType, limit } = req.query as Record<string, string | number>;
+      const result = await eventSearchService.semanticSearch(String(q), {
+        cameraId: cameraId as string | undefined,
+        eventType: eventType as string | undefined,
+        limit: limit ? Number(limit) : 20,
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error('Error running semantic search', 'EventSearch', error);
+      res.status(500).json({ success: false, error: 'Failed to run semantic search' });
+    }
+  },
+);
+
 export default router;

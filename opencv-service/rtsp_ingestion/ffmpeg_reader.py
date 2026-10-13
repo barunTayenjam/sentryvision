@@ -17,6 +17,7 @@ Usage:
 """
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -61,7 +62,11 @@ class FFmpegReader:
         self._callback = None
         self.log_fn = None
         self._reconnect_delay = 1.0
-        self._max_reconnect_delay = 30.0
+        # Short cap: cams flap for seconds at a time (measured 140 drops/24h,
+        # most stuck at the old 30s cap). 30s post-flap backoff = 30s of
+        # human-free blind time. ponytail: raise if a camera goes down for
+        # hours and ffmpeg respawn becomes the hot loop (5s is still cheap).
+        self._max_reconnect_delay = float(os.environ.get("FFMPEG_RECONNECT_MAX_DELAY", "5"))
 
         if scale:
             self.width = width

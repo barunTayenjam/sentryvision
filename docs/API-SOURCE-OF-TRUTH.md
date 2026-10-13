@@ -250,6 +250,16 @@ All endpoints prefixed with `/api`. Base URL: `http://192.168.31.99:9753` in pro
 | GET | `/api/settings` | user | `settingsController.getSettings` |
 | PUT | `/api/settings` | user | `settingsController.updateSettings` |
 
+### Review — `/api/review`
+
+| Method | Path | Auth | Handler |
+|--------|------|------|---------|
+| GET | `/api/review/segments` | user | `review.ts` — list segments (severity/camera/labels/reviewed filters) |
+| GET | `/api/review/counts` | user | `review.ts` — unreviewed counts per severity |
+| POST | `/api/review/segments/:id/acknowledge` | user | `review.ts` — ack single segment |
+| POST | `/api/review/segments/batch-acknowledge` | user | `review.ts` — batch ack (≤200 ids) |
+| GET | `/api/review/segments/:id/thumbnail` | optional | `review.ts` — serve segment thumbnail (`<img src>`) |
+
 ### Alerts — `/api/alerts`
 
 | Method | Path | Auth | Handler |

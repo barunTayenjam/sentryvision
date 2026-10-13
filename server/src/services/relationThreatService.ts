@@ -32,7 +32,73 @@ interface ThreatEventRow {
   faces_detected: number;
   known_faces_count: number;
   unknown_faces_count: number;
+  object_detections: unknown;
+  motion_stats: unknown;
   relations: unknown;
+}
+
+interface RelationBoxDoc {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  class: string;
+  color?: string;
+}
+
+function spatialDescriptor(box: RelationBoxDoc, imgW?: number, imgH?: number): string {
+  const bits: string[] = [];
+  if (imgW && imgH && imgW > 0 && imgH > 0) {
+    const cx = (box.x + box.width / 2) / imgW;
+    const cy = (box.y + box.height / 2) / imgH;
+    bits.push(cx < 0.33 ? 'left' : cx > 0.67 ? 'right' : 'center');
+    bits.push(cy > 0.66 ? 'foreground' : cy < 0.33 ? 'background' : 'midground');
+    const areaFrac = (box.width * box.height) / (imgW * imgH);
+    bits.push(areaFrac > 0.15 ? 'large' : areaFrac < 0.01 ? 'small' : 'medium');
+  }
+  return bits.length ? ` (${bits.join(', ')})` : '';
+}
+
+function timeBucket(date: Date): string {
+  const hour = date.getHours();
+  if (hour >= 20 || hour < 5) return 'night';
+  if (hour >= 18) return 'evening';
+  if (hour < 8) return 'early morning';
+  return 'daytime';
+}
+
+function describePersons(objectDetections: unknown): string[] {
+  if (!Array.isArray(objectDetections)) return [];
+  const out: string[] = [];
+  for (const det of objectDetections) {
+    if (!det || typeof det !== 'object') continue;
+    const d = det as Record<string, unknown>;
+    if (String(d.class ?? '') !== 'person') continue;
+    const attrs = (d.personAttributes ?? null) as Record<string, unknown> | null;
+    const bits: string[] = [];
+    const identity = d.identity;
+    if (typeof identity === 'string' && identity && identity !== 'unknown') {
+      bits.push(`known: ${identity}`);
+    } else if (d.humanVerified === true) {
+      bits.push('identity unknown');
+    }
+    if (d.verificationTier) bits.push(`verified via ${d.verificationTier}`);
+    const colors = attrs?.clothing_colors;
+    if (Array.isArray(colors) && colors.length > 0) {
+      bits.push(`${colors.join('/')} clothing`);
+    } else if (attrs?.clothing) {
+      bits.push(String(attrs.clothing));
+    }
+    if (attrs?.carryingItem && attrs.carryingItem !== 'none') {
+      bits.push(`carrying ${attrs.carryingItem}`);
+    }
+    if (attrs?.armsRaised === true) bits.push('arms raised');
+    if (attrs?.bodyLanguage && attrs.bodyLanguage !== 'neutral') {
+      bits.push(`${attrs.bodyLanguage} body language`);
+    }
+    if (bits.length > 0) out.push(`- ${bits.join(', ')}`);
+  }
+  return out;
 }
 
 export function extractJson(raw: string): unknown {
@@ -75,23 +141,45 @@ export function normalizeThreat(parsed: unknown, model: string): RelationThreat 
   };
 }
 
-function buildPrompt(row: ThreatEventRow, relations: EventRelation[], boxes: string[]): string {
+function buildPrompt(
+  row: ThreatEventRow,
+  relations: EventRelation[],
+  boxes: RelationBoxDoc[],
+  imgW?: number,
+  imgH?: number,
+): string {
   const time = new Date(row.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
   const relationLines = relations
     .map((r) => `${r.subject} -> ${r.predicate} -> ${r.object} (score ${r.score})`)
     .join('; ');
+  const objectLines = boxes
+    .map((b) => `- ${b.color ? `${b.color} ${b.class}` : b.class}${spatialDescriptor(b, imgW, imgH)}`)
+    .join('\n');
+  const personLines = describePersons(row.object_detections);
+  const motion = (row.motion_stats ?? null) as Record<string, unknown> | null;
+  const motionPct =
+    motion && Number.isFinite(Number(motion.motion_percentage))
+      ? `Motion coverage: ${Number(motion.motion_percentage).toFixed(1)}% of frame.`
+      : '';
+
   return [
     `Camera: ${row.camera_id ?? 'unknown'}`,
-    `Time: ${time} IST`,
+    `Time: ${time} IST (${timeBucket(new Date(row.timestamp))})`,
     `Event type: ${row.event_type}`,
     `Persons detected: ${row.persons_detected}, faces: ${row.faces_detected} (known ${row.known_faces_count}, unknown ${row.unknown_faces_count})`,
-    `Objects in frame: ${boxes.join(', ')}`,
+    ...(personLines.length > 0 ? ['Person details:', ...personLines] : []),
+    'Objects in frame:',
+    objectLines,
+    '',
     `Grounded scene relations: ${relationLines}`,
+    motionPct,
     '',
     'Assess the security threat of this event using ONLY the facts above. Do not invent objects or people.',
     'Reply with strict JSON only, no markdown:',
     '{"level":"low|medium|high","confidence":0-100,"reasoning":"at most two sentences","factors":["short factual factors"],"recommendedActions":["short actions"]}',
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 export class RelationThreatService {
@@ -102,7 +190,7 @@ export class RelationThreatService {
 
     const rows = (await AppDataSource.query(
       `SELECT id, camera_id, timestamp, event_type, persons_detected, faces_detected,
-              known_faces_count, unknown_faces_count, relations
+              known_faces_count, unknown_faces_count, object_detections, motion_stats, relations
        FROM events WHERE id = $1 LIMIT 1`,
       [eventId],
     )) as ThreatEventRow[];
@@ -122,8 +210,17 @@ export class RelationThreatService {
           threat: null,
         };
       }
-      const boxes = (event.relations as { boxes?: Array<{ class: string }> }).boxes ?? [];
-      return this.compute(eventId, event, doc.relations as EventRelation[], boxes.map((b) => b.class));
+      const docBoxes = (event.relations as { boxes?: RelationBoxDoc[] }).boxes ?? [];
+      const imgW = (event.relations as { imageWidth?: number }).imageWidth;
+      const imgH = (event.relations as { imageHeight?: number }).imageHeight;
+      return this.compute(
+        eventId,
+        event,
+        doc.relations as EventRelation[],
+        docBoxes,
+        imgW,
+        imgH,
+      );
     }
 
     return {
@@ -138,9 +235,11 @@ export class RelationThreatService {
     eventId: string,
     event: ThreatEventRow,
     relations: EventRelation[],
-    boxes: string[],
+    boxes: RelationBoxDoc[],
+    imgW?: number,
+    imgH?: number,
   ): Promise<RelationThreatResponse> {
-    const prompt = buildPrompt(event, relations, boxes);
+    const prompt = buildPrompt(event, relations, boxes, imgW, imgH);
     const raw = await chatCompletion(
       'You are a home-security analyst. You assess camera events using ONLY the grounded facts provided — never invent objects or people. Respond with strict JSON, no markdown.',
       prompt,

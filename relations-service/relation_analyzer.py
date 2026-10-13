@@ -59,6 +59,43 @@ def merge_scene_boxes(
     return kept
 
 
+def dominant_color_name(rgb: Tuple[int, int, int]) -> str:
+    """Name an average RGB pixel with a coarse color vocabulary."""
+    import colorsys
+
+    r, g, b = (v / 255.0 for v in rgb)
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    hue = h * 360
+    if v < 0.18:
+        return "black"
+    if s < 0.16:
+        return "white" if v > 0.75 else "gray"
+    if hue < 15 or hue >= 345:
+        return "red"
+    if hue < 40:
+        return "orange" if s > 0.55 and v > 0.5 else "brown"
+    if hue < 65:
+        return "yellow"
+    if hue < 165:
+        return "green"
+    if hue < 260:
+        return "blue"
+    if hue < 300:
+        return "purple"
+    return "pink"
+
+
+def box_color(pil_image: Any, box: List[float]) -> Optional[str]:
+    """Average-color name for a xyxy box region, downsampled for speed."""
+    x1, y1, x2, y2 = (int(max(0, v)) for v in box)
+    x2 = max(x1 + 1, x2)
+    y2 = max(y1 + 1, y2)
+    region = pil_image.crop((x1, y1, x2, y2)).resize((8, 8))
+    pixels = list(region.getdata())
+    avg = tuple(sum(c[i] for c in pixels) // len(pixels) for i in range(3))
+    return dominant_color_name(avg)
+
+
 def validate_detections(
     detections: List[Dict[str, Any]],
     width: int,
@@ -177,6 +214,7 @@ class RelationAnalyzer:
                     "width": box[2] - box[0],
                     "height": box[3] - box[1],
                     "class": label,
+                    "color": box_color(pil_image, box),
                 }
                 for _, box, label in kept
             ]

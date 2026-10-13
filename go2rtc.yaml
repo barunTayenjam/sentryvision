@@ -3,7 +3,9 @@ ffmpeg:
   # pixel-bound — 640x360 starved YOLO of small/distant persons. 720p is
   # the Frigate-documented sweet spot; bitrate raised to keep compression
   # artifacts below the resolution win.
-  h264_low: "-codec:v libx264 -filter:v scale=1280:720,fps=15 -preset:v ultrafast -tune:v zerolatency -g:v 15 -b:v 2048k -pix_fmt:v yuv420p"
+  # CPU optimization (Oct 12): dropped to 10fps / 1500k from 15fps / 2048k
+  # to cut go2rtc transcode load (was 50% of 2-CPU cap). Tiles still smooth.
+  h264_low: "-codec:v libx264 -filter:v scale=1280:720,fps=10 -preset:v ultrafast -tune:v zerolatency -g:v 15 -b:v 1500k -pix_fmt:v yuv420p"
 
 streams:
   cam1:

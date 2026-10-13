@@ -10,6 +10,8 @@ import {
   humanCountsParamsSchema,
   periodReportParamsSchema,
   resolveVehicleClasses,
+  semanticSearchParamsSchema,
+  semanticSearchTool,
   vehicleTimeline,
   vehicleTimelineParamsSchema,
 } from './queryTools.js';
@@ -19,7 +21,7 @@ import {
   resolveRange,
   rangeTokenSchema,
 } from './dateResolver.js';
-import { collectReportStats, reportMarkdown, reportTables } from './reportGenerator.js';
+import { collectReportScenes, collectReportStats, reportMarkdown, reportTables } from './reportGenerator.js';
 
 const TOOLS_PROMPT = `You classify a home-security camera question into one of four tools and return ONLY JSON: {"tool": string, "params": object}.
 
@@ -47,7 +49,10 @@ Tools:
 6. tool="anomalies" — question asks about unusual activity, spikes, sudden surges, quiet days, outages, gaps, or a camera being down/no detections.
    params: { "range": same as above, "camera": string|null }
 
-7. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
+7. tool="semantic_search" — the user describes a SCENE or MOMENT to find (e.g. "someone at the gate at night", "a car parked in the driveway", "dog in the yard", "person carrying something", "show me when the package arrived"). Use this when the question asks to find/locate/show specific events matching a description rather than count or summarize. Pass the user's descriptive phrase VERBATIM as "query" — do not rephrase it.
+   params: { "query": string, "camera": string|null, "limit": int (1-10, default 5) }
+
+8. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
 
 Accuracy rules — MANDATORY:
 - Never invent dates, times, counts, camera names, or vehicle classes.
@@ -80,6 +85,7 @@ const classificationSchema = z.object({
     'camera_activity',
     'event_correlation',
     'anomalies',
+    'semantic_search',
     'fallback',
   ]),
   params: z.record(z.unknown()),
@@ -167,6 +173,39 @@ export async function runClassifiedChat(
   const tool = classified.tool;
 
   if (tool === 'fallback') return answerFallback(trimmed, history);
+
+  // semantic_search needs no time range — hits span the whole archive.
+  if (tool === 'semantic_search') {
+    const parsed = semanticSearchParamsSchema.safeParse(classified.params);
+    if (!parsed.success) throw new ChatError('Missing/invalid semantic search params', 422);
+    const { tables, evidence, images } = await semanticSearchTool({
+      query: parsed.data.query,
+      camera: parsed.data.camera ?? null,
+      limit: parsed.data.limit,
+    });
+    const rows = tables[0]?.rows ?? [];
+    const windowLabel = `${evidence.events} matches (${evidence.detections} hits)`;
+    const lines: string[] = [];
+    if (rows.length === 0) {
+      lines.push(`Nothing in the archive matches "${parsed.data.query}". Try describing the scene differently — object, place, or time of day.`);
+    } else {
+      lines.push(`## Found ${rows.length} match${rows.length === 1 ? '' : 'es'} for "${parsed.data.query}"`);
+      lines.push('');
+      for (const r of rows) {
+        lines.push(`- **${r[0]}** on ${r[1]} — ${r[2]} (${r[3]} match, ${r[4]})`);
+      }
+      lines.push('');
+      lines.push('Full detail (relations, verification, AI analysis) on each event card in Events.');
+    }
+    return {
+      tool,
+      params: { query: parsed.data.query, camera: parsed.data.camera ?? null, limit: parsed.data.limit },
+      answer: { type: 'markdown', content: lines.join('\n') },
+      tables,
+      evidence: { ...evidence, window: windowLabel },
+      images,
+    };
+  }
 
   const range = resolveParamsRange(classified.params);
 
@@ -368,23 +407,40 @@ export async function runClassifiedChat(
   const parsed = periodReportParamsSchema.safeParse(classified.params);
   if (!parsed.success) throw new ChatError('Missing/invalid report params', 422);
   const stats = await collectReportStats({ from: range.from, to: range.to, camera: parsed.data.camera });
+  const scenes = await collectReportScenes({ from: range.from, to: range.to, camera: parsed.data.camera });
   const tables = reportTables(stats);
   let narrative = '';
   if (stats.totals.events > 0) {
     try {
+      const sceneLines = scenes.slice(0, 6).map((s) => {
+        const time = s.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+        const rel = s.relations.slice(0, 3).map((r) => `${r.subject} ${r.predicate} ${r.object}`).join('; ');
+        return `${time} on ${s.camera}${s.description ? `: ${s.description}` : rel ? ` (${rel})` : ''}`;
+      });
       const statsJson = JSON.stringify(stats);
       const narration = await chatLlm(
-        `Write a 4-8 sentence plain-language summary of the detection statistics. Use ONLY the numbers given — do not compute, estimate, or invent any value. If a number appears in your text it must appear in the JSON input. Do not mention the camera system internals. Output markdown prose only, no headings, no lists.`,
-        `Statistics: ${statsJson}`,
+        `Write a 4-8 sentence plain-language summary of what happened based on the statistics and scene highlights below. Use ONLY the numbers given — do not compute, estimate, or invent any value. If a number appears in your text it must appear in the JSON input. Describe the scene highlights in your own words but stay faithful — do not invent objects or events. Do not mention the camera system internals. Output markdown prose only, no headings, no lists.`,
+        `Statistics: ${statsJson}\n\nScene highlights (most recent first):\n${sceneLines.join('\n') || '(none)'}`,
         { maxTokens: 500 },
       );
-      const safe = stripUnverifiedNumbers(narration, statsJson).trim();
+      const safe = stripUnverifiedNumbers(narration, statsJson + sceneLines.join(' ')).trim();
       if (safe) narrative = safe;
     } catch (err) {
       logger.warn('Report narrative generation failed, using numbers only', 'CHAT', err);
     }
   }
-  const body = reportMarkdown(stats) + (narrative ? `\n\n${narrative}` : '');
+  const sceneSection =
+    scenes.length > 0
+      ? `\n\n## Highlights\n${scenes
+          .slice(0, 6)
+          .map((s) => {
+            const time = s.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+            const rel = s.relations.slice(0, 3).map((r) => `${r.subject} ${r.predicate} ${r.object}`).join('; ');
+            return `- **${time} ${s.camera}**${s.description ? ` — ${s.description}` : rel ? ` — ${rel}` : ''}`;
+          })
+          .join('\n')}`
+      : '';
+  const body = reportMarkdown(stats) + (narrative ? `\n\n${narrative}` : '') + sceneSection;
   return {
     tool,
     params: { range: range.label, camera: parsed.data.camera ?? null },

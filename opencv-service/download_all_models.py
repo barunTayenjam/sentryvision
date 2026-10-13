@@ -49,6 +49,49 @@ MODELS = {
         'required': False
     },
 
+    # CrowdHuman QAT v8s backbone — primary person detector (recall 0.884
+    # vs 0.864 v8n on 3115 AI-labeled events). YOLO_MODEL=crowdhuman_v8s_qat_640x384
+    'crowdhuman_v8s_qat_640x384.onnx': {
+        'urls': [
+            "https://huggingface.co/ru551n/inblick-yolov8n/resolve/main/crowdhuman_v8s_qat_640x384/qdq.onnx",
+        ],
+        'description': 'CrowdHuman QAT v8s person detector - highest person recall',
+        'size_mb': 11.5,
+        'required': False
+    },
+
+    # COCO QAT INT8 (80-class, 640x384) — dual-chain aux for
+    # vehicles/animals. QAT_AUX=coco_qat
+    'coco_qat_640x384.onnx': {
+        'urls': [
+            "https://huggingface.co/ru551n/inblick-yolov8n/resolve/main/coco_qat_640x384/qdq.onnx",
+        ],
+        'description': 'COCO QAT INT8 detector - vehicles/animals aux, 16:9 input',
+        'size_mb': 3.5,
+        'required': False
+    },
+
+    # all-MiniLM-L6-v2 INT8 ONNX (384-dim text embeddings) — semantic search
+    # over events. Served by /embed; falls back to hash vectors when absent.
+    'minilm_l6_int8.onnx': {
+        'urls': [
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
+        ],
+        'description': 'all-MiniLM-L6-v2 INT8 ONNX - 384-dim sentence embeddings',
+        'size_mb': 23.0,
+        'required': False
+    },
+
+    # Tokenizer for the MiniLM embedder (HuggingFace tokenizers format)
+    'minilm_tokenizer.json': {
+        'urls': [
+            "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+        ],
+        'description': 'MiniLM tokenizer.json (wordpiece, 256 token limit)',
+        'size_mb': 0.7,
+        'required': False
+    },
+
     # YOLOv5n ONNX - Good alternative
     'yolov5n.onnx': {
         'urls': [

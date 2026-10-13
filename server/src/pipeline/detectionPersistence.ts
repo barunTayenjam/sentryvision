@@ -12,6 +12,22 @@ import NotificationService from '../services/notificationService.js';
 import { VEHICLE_CLASSES } from '../shared/constants.js';
 import { isSceneMemoryEnabled, compareEventToBaseline } from '../services/sceneMemoryService.js';
 import { enqueueRelationJob } from '../services/relationQueue.js';
+import { getMqttService } from '../services/mqttService.js';
+
+function emitMqttEvent(cameraId: string, eventId: string, eventType: string, score: number) {
+  try {
+    getMqttService()?.publishEvent(cameraId, {
+      id: eventId,
+      camera: cameraId,
+      type: eventType,
+      confidence: score,
+      timestamp: new Date().toISOString(),
+    });
+    if (eventType === 'person') getMqttService()?.publishPersonState(cameraId, true);
+  } catch (err) {
+    logger.debug('MQTT publish failed (non-blocking)', 'PIPELINE', err);
+  }
+}
 
 function envNumber(raw: string | undefined, fallback: number): number {
   const parsed = Number(raw);
@@ -155,9 +171,16 @@ export async function persistDetectionEvent(
     return interArea / (aArea + bArea - interArea);
   };
 
-  // Filter out lost tracks and dedupe overlapping person bboxes (same person → 1)
+  // Filter out lost tracks and dedupe overlapping person bboxes (same person → 1).
+  // Never filter out the event's own track: the scene snapshot can be empty
+  // (5s window expired) or the primary track can arrive already `lost`, and
+  // dropping it persisted a person event with persons_detected=0 and
+  // object_detections=[] — two such rows (15:27, 16:57 on Oct 5) were verified
+  // humans carrying 33 pose keypoints while claiming zero people.
   const activePersonDets = allSceneDets.filter(
-    (d) => d.className === 'person' && (d.trackState ?? '') !== 'lost'
+    (d) =>
+      d.className === 'person' &&
+      ((d.trackState ?? '') !== 'lost' || d.trackId === trackId),
   );
   const seen: typeof activePersonDets = [];
   const personDets = activePersonDets.filter((d) => {
@@ -262,6 +285,35 @@ export async function persistDetectionEvent(
   event.motion_stats = ev.motionStats ?? null;
 
   await AppDataSource.getRepository(Event).save(event);
+
+  emitMqttEvent(cameraId, event.id, eventTypeStr, score);
+
+  try {
+    serviceRegistry
+      .getReviewService()
+      .upsertSegmentFromEvent({
+        id: event.id,
+        camera_id: event.camera_id,
+        timestamp: event.timestamp,
+        severity: severity === 'info' ? 'info' : severity,
+        event_type: eventTypeStr,
+        file_path: event.file_path,
+        object_detections: sceneDets.map((d) => ({
+          class: d.className,
+          confidence: Math.round(d.score * 100),
+          trackId: d.trackId,
+        })),
+      })
+      .catch((err: unknown) => {
+        logger.warn(
+          `[DetectionPersistence] Review segment upsert failed for ${cameraId}`,
+          'PIPELINE',
+          err,
+        );
+      });
+  } catch (err) {
+    logger.debug('Review segment upsert skipped (service unavailable)', 'PIPELINE', err);
+  }
 
   try {
     const detRepo = AppDataSource.getRepository(EventDetection);

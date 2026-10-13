@@ -114,6 +114,39 @@ describe('eventSearchService.listEnhanced', () => {
     });
   });
 
+  it('does not hide motion/vehicle events that carry no persons', async () => {
+    AppDataSource.query.mockReset();
+    AppDataSource.query
+      .mockResolvedValueOnce([{ total: '1' }])
+      .mockResolvedValueOnce([
+        {
+          ...baseRow,
+          id: 'evt-vehicle',
+          event_type: 'vehicle',
+          persons_detected: 0,
+          object_detections: [{ bbox: { x: 43, y: 164, width: 132, height: 87 }, class: 'truck', trackId: 3 }],
+        },
+      ]);
+
+    const { events } = await service.listEnhanced({ page: '1', pageSize: '10' });
+
+    expect(events).toHaveLength(1);
+    const sql: string = AppDataSource.query.mock.calls[0][0];
+    expect(sql).not.toMatch(/COALESCE\(e\.persons_detected, 0\) > 0/);
+  });
+
+  it('still applies the persons filter when the user asks for persons', async () => {
+    AppDataSource.query.mockReset();
+    AppDataSource.query
+      .mockResolvedValueOnce([{ total: '1' }])
+      .mockResolvedValueOnce([baseRow]);
+
+    await service.listEnhanced({ page: '1', pageSize: '10', event_type: 'person' });
+
+    const sql: string = AppDataSource.query.mock.calls[0][0];
+    expect(sql).toMatch(/COALESCE\(e\.persons_detected, 0\) > 0/);
+  });
+
   it('returns null metadata instead of a bare [] when the column is empty or malformed', async () => {
     AppDataSource.query
       .mockResolvedValueOnce([{ total: '2' }])

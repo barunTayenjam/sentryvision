@@ -129,6 +129,18 @@ export function startCronJobs(io: SocketIOServer) {
   cron.schedule('0 8 * * *', async () => {
     // Cron job log disabled - console.log('Running daily report job');
     await generateDailyReport(io);
+    try {
+      const { persistAndPushDigest } = await import(
+        '../services/chat/dailyDigestService.js'
+      );
+      const result = await persistAndPushDigest();
+      logger.info(
+        `Daily digest: persisted=${result.persisted} pushed=${result.pushed} failed=${result.failed}`,
+        'Cron',
+      );
+    } catch (err) {
+      logger.error(`Daily digest generation failed: ${err}`, 'Cron');
+    }
   });
 
   // Schedule cleanup of old snapshots and events (keep last 30 days)
