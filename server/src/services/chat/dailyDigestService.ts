@@ -128,7 +128,7 @@ async function pushDigestToSubscribers(
     try {
       await NotificationService.sendNotificationToUser(
         row.user_id,
-        { title: digest.title, body: digest.body.slice(0, 500), url: digest.url },
+        { title: digest.title, body: digest.body.slice(0, 500), data: { url: digest.url } },
         'system',
       );
       pushed++;

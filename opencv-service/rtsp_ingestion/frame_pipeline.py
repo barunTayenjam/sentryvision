@@ -820,6 +820,13 @@ class FramePipeline:
         self._person_min_conf = float(os.getenv("PERSON_MIN_CONFIDENCE", "0.55"))
         self._vehicle_min_hits = int(os.getenv("VEHICLE_MIN_TRACK_HITS", "3"))
         self._vehicle_min_conf = float(os.getenv("VEHICLE_MIN_CONFIDENCE", "0.45"))
+        # Motion-only tracks (no class, no person/vehicle) are the common case
+        # — a dog, a falling branch, a car pulling in. They carry no YOLO
+        # confidence floor, so the snapshot gate below is what keeps them from
+        # writing a JPEG every frame and flooding the events page with
+        # near-duplicate stills. Defaults match the person/vehicle gates.
+        self._motion_min_hits = int(os.getenv("MOTION_MIN_TRACK_HITS", "3"))
+        self._motion_min_conf = float(os.getenv("MOTION_MIN_CONFIDENCE", "0.45"))
         self._recheck_max_area = int(os.getenv("YOLO_RECHECK_MAX_AREA", "5000"))
         self._recheck_cache: dict[int, tuple[int, bool]] = {}
         self._face_recognition_fn = None
@@ -1419,6 +1426,28 @@ class FramePipeline:
                 if (
                     obj.get("tracklet_len", 0) >= self._vehicle_min_hits
                     and obj.get("score", 0) >= self._vehicle_min_conf
+                    and tid not in self._snapshotted_tracks
+                ):
+                    snap = self._save_snapshot(tid, frame)
+                    if snap:
+                        self._snapshotted_tracks.add(tid)
+                        self._snapshot_paths[tid] = snap
+                # Reattach cached snapshot path
+                if tid in self._snapshot_paths:
+                    obj["file_path"] = self._snapshot_paths[tid]
+            # ------------------------
+
+            # --- MOTION SNAPSHOT ---
+            # All other tracked classes (dog, cat, bird, …) persist in Node as
+            # `motion` events. Without a snapshot those rows carry file_path
+            # NULL and the events page renders "No image" for every one of
+            # them. Same once-per-track gate, keyed to motion thresholds.
+            # Persons are excluded: they are snapshotted by the verification
+            # gate above, which only fires once a track is confirmed human.
+            elif obj.get("class") != "person":
+                if (
+                    obj.get("tracklet_len", 0) >= self._motion_min_hits
+                    and obj.get("score", 0) >= self._motion_min_conf
                     and tid not in self._snapshotted_tracks
                 ):
                     snap = self._save_snapshot(tid, frame)
