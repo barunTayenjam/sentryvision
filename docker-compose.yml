@@ -193,6 +193,9 @@ services:
       # drift out of sync. `docker restart sentryvision-opencv` picks up all
       # code changes. Image rebuild only needed for requirements.txt changes.
       - ./opencv-service:/app
+      # cameras.json is gitignored and lives only in server/ — bind it in so a
+      # fresh clone doesn't boot opencv with zero cameras (WS 9090 never starts)
+      - ./server/cameras.json:/app/cameras.json:ro
       - ./opencv-service/.insightface:/root/.insightface
       - ./opencv-service/.hf-cache:/root/.cache/huggingface
       - ./data/detections:/app/data/detections
