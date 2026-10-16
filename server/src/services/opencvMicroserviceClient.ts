@@ -263,6 +263,22 @@ export class OpenCVMicroserviceClient {
   }
 
   /**
+   * Generic POST with circuit breaker — used by enrollment (multipart) and
+   * other ad-hoc OpenCV calls.
+   */
+  async post(path: string, body: unknown, opts: any = {}): Promise<{ data: unknown }> {
+    try {
+      const response = await this.breaker.execute(() =>
+        this.client.post(path, body, opts),
+      );
+      return { data: response.data };
+    } catch (error) {
+      logger.warn(`OpenCV Microservice: POST ${path} failed`, 'OpenCVClient', error);
+      throw error;
+    }
+  }
+
+  /**
    * Generate a hash for file identification and caching
    */
   private generateFileHash(imagePath: string, stats: fs.Stats): string {

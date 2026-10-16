@@ -7,7 +7,6 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   BarChart3,
   Bell,
-  CheckCircle2,
   LogOut,
   MessageSquare,
   Radio,
@@ -29,7 +28,6 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/', label: 'Dashboard', shortLabel: 'Home', icon: Radio },
   { href: '/events', label: 'Events', shortLabel: 'Events', icon: Bell },
-  { href: '/review', label: 'Review', shortLabel: 'Review', icon: CheckCircle2 },
   { href: '/security', label: 'Security', shortLabel: 'Security', icon: Shield },
   { href: '/analytics', label: 'Analytics', shortLabel: 'Analytics', icon: BarChart3 },
   { href: '/ask', label: 'Assistant', shortLabel: 'Ask', icon: MessageSquare },

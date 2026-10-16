@@ -152,6 +152,7 @@ const TimelapsePage: React.FC = () => {
   );
   const busy = generatingCount > 0;
   const activeMeta = active ? camStates[active]?.meta : undefined;
+  const activeTimelapse = active ? list.find((t) => t.cameraId === active) : undefined;
 
   const runGenerate = async (camId: string) => {
     setCamStates((p) => ({
@@ -516,9 +517,14 @@ const TimelapsePage: React.FC = () => {
                       </Button>
                     )}
                     {active && (
-                      <Button asChild variant="ghost" size="sm">
+                      <Button
+                        asChild={!!activeTimelapse?.path}
+                        disabled={!activeTimelapse?.path}
+                        variant="ghost"
+                        size="sm"
+                      >
                         <a
-                          href={list.find((t) => t.cameraId === active)?.path}
+                          href={activeTimelapse?.path}
                           download={`${active}-${date}.mp4`}
                         >
                           <Download className="w-3 h-3 mr-1" />

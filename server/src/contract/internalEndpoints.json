@@ -131,12 +131,17 @@
   },
   {
     "method": "GET",
-    "path": "/api/review/segments/*/thumbnail",
-    "reason": "binary image endpoint consumed by <img src> in ReviewPage; the contract extractor only parses fetch/apiClient calls, not img src attributes"
-  },
-  {
-    "method": "GET",
     "path": "/api/events/semantic",
     "reason": "semantic vector search endpoint consumed by frontend event search bar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/maintenance/reindex-embeddings",
+    "reason": "admin-only embedding backfill driven by curl/operator, not the frontend"
+  },
+  {
+    "method": "POST",
+    "path": "/api/faces/enroll-from-event/:eventId",
+    "reason": "frontend face enrollment \u2014 names a person from an event snapshot, retrains ArcFace live"
   }
 ]

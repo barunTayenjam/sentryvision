@@ -61,6 +61,16 @@ app.use(
 app.use(express.json());
 app.use(securityHeaders());
 
+// Request log — every API response, one line, with status and duration.
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api/') || req.url.startsWith('/api/streams')) return next();
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.info(`API ${req.method} ${req.url} - ${res.statusCode} - ${Date.now() - start}ms`);
+  });
+  next();
+});
+
 const server = http.createServer(app);
 
 const go2rtcParsed = new URL(go2rtcUrl);

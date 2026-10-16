@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { TrackingEvent } from '../services/pythonWsClient.js';
 import NotificationService from '../services/notificationService.js';
 import { VEHICLE_CLASSES } from '../shared/constants.js';
+import { embedEventScene } from '../services/eventSearch/sceneEmbeddingService.js';
 import { isSceneMemoryEnabled, compareEventToBaseline } from '../services/sceneMemoryService.js';
 import { enqueueRelationJob } from '../services/relationQueue.js';
 import { getMqttService } from '../services/mqttService.js';
@@ -288,32 +289,7 @@ export async function persistDetectionEvent(
 
   emitMqttEvent(cameraId, event.id, eventTypeStr, score);
 
-  try {
-    serviceRegistry
-      .getReviewService()
-      .upsertSegmentFromEvent({
-        id: event.id,
-        camera_id: event.camera_id,
-        timestamp: event.timestamp,
-        severity: severity === 'info' ? 'info' : severity,
-        event_type: eventTypeStr,
-        file_path: event.file_path,
-        object_detections: sceneDets.map((d) => ({
-          class: d.className,
-          confidence: Math.round(d.score * 100),
-          trackId: d.trackId,
-        })),
-      })
-      .catch((err: unknown) => {
-        logger.warn(
-          `[DetectionPersistence] Review segment upsert failed for ${cameraId}`,
-          'PIPELINE',
-          err,
-        );
-      });
-  } catch (err) {
-    logger.debug('Review segment upsert skipped (service unavailable)', 'PIPELINE', err);
-  }
+  void embedEventScene(event);
 
   try {
     const detRepo = AppDataSource.getRepository(EventDetection);

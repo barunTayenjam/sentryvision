@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { AppDataSource } from '../database.js';
 import { relationAnalysisService } from './relationAnalysisService.js';
+import { reembedEventById } from './eventSearch/sceneEmbeddingService.js';
 
 const CONCURRENCY = 2;
 const IDLE_POLL_MS = 2000;
@@ -110,6 +111,9 @@ export async function runRelationWorkerTick(): Promise<number> {
           `[RelationQueue] job ${job.id} done: event ${job.event_id} (${result?.relations?.length ?? 0} relations)`,
           'RelationQueue',
         );
+        // Relations change the scene caption — re-embed so semantic search
+        // finds the richer text.
+        void reembedEventById(job.event_id).catch(() => {});
         if (result && result.relations.length > 0) {
           try {
             const { relationThreatService } = await import('./relationThreatService.js');

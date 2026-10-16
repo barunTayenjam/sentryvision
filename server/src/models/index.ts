@@ -8,8 +8,6 @@ export { PasswordHistory } from './PasswordHistory.js';
 export { Event } from './Event.js';
 export { BatchJob } from './BatchJob.js';
 export { ProcessedImage } from './ProcessedImage.js';
-export { ReviewSegment } from './ReviewSegment.js';
-export { UserReviewStatus } from './UserReviewStatus.js';
 export { Timeline } from './Timeline.js';
 export { AdaptiveRegion } from './AdaptiveRegion.js';
 export { DetectionConfig } from './DetectionConfig.js';

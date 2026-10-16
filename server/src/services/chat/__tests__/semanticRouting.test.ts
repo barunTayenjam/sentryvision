@@ -20,12 +20,15 @@ jest.unstable_mockModule('../../../database.js', () => ({
 
 const { runClassifiedChat } = await import('../chatService.js');
 
+const classifyJson = JSON.stringify({
+  tool: 'semantic_search',
+  params: { query: 'dog near gate', camera: null },
+});
+
 describe('chatService semantic_search routing', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    mockLlm.mockResolvedValue(
-      JSON.stringify({ tool: 'semantic_search', params: { query: 'dog near gate', camera: null } }),
-    );
+    jest.resetAllMocks();
+    mockLlm.mockResolvedValue(classifyJson);
     mockSemanticSearch.mockResolvedValue({
       events: [
         {
@@ -49,7 +52,12 @@ describe('chatService semantic_search routing', () => {
     });
   });
 
-  it('routes scene-description questions to semantic_search and returns matched event', async () => {
+  it('routes scene-description questions to semantic_search and synthesizes an answer', async () => {
+    // Call 1 = classification (default mock), call 2 = answer synthesis.
+    mockLlm
+      .mockResolvedValueOnce(classifyJson)
+      .mockResolvedValue('Synthesized: a dog was near the gate on cam1 at 02:30 pm.');
+
     const res = await runClassifiedChat('show me when the dog was near the gate');
 
     expect(res.tool).toBe('semantic_search');
@@ -57,10 +65,22 @@ describe('chatService semantic_search routing', () => {
       cameraId: undefined,
       limit: 5,
     });
-    expect(res.answer.content).toContain('dog near gate');
     expect(res.answer.content).toContain('cam1');
     expect(res.tables[0].rows).toHaveLength(1);
     expect(res.images).toHaveLength(1);
+  });
+
+  it('falls back to the link table when synthesis fails', async () => {
+    // Call 1 = classification, call 2 = synthesis which fails.
+    mockLlm
+      .mockResolvedValueOnce(classifyJson)
+      .mockRejectedValueOnce(new Error('llm down'));
+
+    const res = await runClassifiedChat('show me when the dog was near the gate');
+
+    expect(res.tool).toBe('semantic_search');
+    expect(res.answer.content).toContain('Found 1 match');
+    expect(res.answer.content).toContain('cam1');
   });
 
   it('answers honestly when nothing matches', async () => {

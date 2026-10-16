@@ -726,6 +726,8 @@ export const semanticSearchParamsSchema = z.object({
   query: z.string().min(1).max(500),
   camera: z.string().nullable().optional(),
   limit: z.number().int().min(1).max(10).default(5),
+  from: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
 });
 
 export type SemanticSearchParams = z.infer<typeof semanticSearchParamsSchema>;
@@ -755,6 +757,8 @@ export async function semanticSearchTool(params: {
   query: string;
   camera: string | null;
   limit: number;
+  from?: string | null;
+  to?: string | null;
 }): Promise<{
   tables: import('../../types/chat.js').ChatTable[];
   evidence: import('../../types/chat.js').ToolEvidence;
@@ -763,6 +767,8 @@ export async function semanticSearchTool(params: {
   const result = await eventSearchService.semanticSearch(params.query, {
     cameraId: params.camera ?? undefined,
     limit: params.limit,
+    ...(params.from ? { startDate: new Date(params.from) } : {}),
+    ...(params.to ? { endDate: new Date(params.to) } : {}),
   });
 
   const hits = (result.events ?? []) as SemanticSearchHit[];
@@ -778,7 +784,7 @@ export async function semanticSearchTool(params: {
 
   // Enrichment: full object detections + relations per hit. Never fatal —
   // the base hybrid hits already answer the question.
-  let enrich: Map<string, { relations: unknown; details: unknown }> = new Map();
+  const enrich: Map<string, { relations: unknown; details: unknown }> = new Map();
   try {
     const [detailRows, relationRows] = await Promise.all([
       AppDataSource.query(
@@ -839,5 +845,163 @@ export async function semanticSearchTool(params: {
       cameras: [...new Set(hits.map((h) => String(h.cameraId ?? '')).filter(Boolean))],
     },
     images,
+  };
+}
+
+// ── person_visits: who came or went, per camera ──
+
+export const personVisitsParamsSchema = z.object({
+  range: rangeSchema,
+  camera: z.string().nullable().optional(),
+});
+
+export type PersonVisitsParams = z.infer<typeof personVisitsParamsSchema>;
+
+/** Movement threshold as a fraction of frame width before direction counts. */
+const DIRECTION_FLOOR = 0.1;
+
+export function directionOf(firstX: number, lastX: number, frameWidth = 640): string {
+  const dx = lastX - firstX;
+  if (Math.abs(dx) < frameWidth * DIRECTION_FLOOR) return 'stationary';
+  return dx > 0 ? 'left-to-right' : 'right-to-left';
+}
+
+export interface PersonSpanInput {
+  camera: string;
+  first: Date;
+  last: Date;
+  obs: number;
+  firstX: number;
+  lastX: number;
+  identity: string | null;
+}
+
+export interface PersonVisit extends Session {
+  direction: string;
+  identity: string | null;
+}
+
+/**
+ * Cluster person track spans into visits (same 5-min gap rule as vehicles),
+ * carrying each visit's dominant bbox-x movement and best-known identity.
+ */
+export function clusterPersonVisits(spans: PersonSpanInput[]): PersonVisit[] {
+  const byCam = new Map<string, PersonSpanInput[]>();
+  for (const s of spans) {
+    const list = byCam.get(s.camera) ?? [];
+    list.push(s);
+    byCam.set(s.camera, list);
+  }
+  const visits: PersonVisit[] = [];
+  for (const [camera, camSpans] of byCam) {
+    const sorted = [...camSpans].sort((a, b) => a.first.getTime() - b.first.getTime());
+    let cur: PersonVisit | null = null;
+    for (const s of sorted) {
+      if (cur && s.first.getTime() <= cur.last.getTime() + SESSION_GAP_MS) {
+        cur.last = new Date(Math.max(cur.last.getTime(), s.last.getTime()));
+        cur.trackCount += 1;
+        cur.obs += s.obs;
+        // Direction across the whole visit: outermost first/last x.
+        cur.direction = directionOf(curFirstX(cur), s.lastX);
+        if (s.identity && s.identity !== 'unknown') cur.identity = s.identity;
+      } else {
+        if (cur) visits.push(cur);
+        cur = {
+          camera,
+          first: s.first,
+          last: s.last,
+          trackCount: 1,
+          obs: s.obs,
+          direction: directionOf(s.firstX, s.lastX),
+          identity: s.identity && s.identity !== 'unknown' ? s.identity : null,
+        };
+        setFirstX(cur, s.firstX);
+      }
+    }
+    if (cur) visits.push(cur);
+  }
+  visits.sort((a, b) => a.first.getTime() - b.first.getTime());
+  return visits;
+}
+
+// Track the visit's earliest first-x on the instance without a class field.
+const firstXMap = new WeakMap<object, number>();
+function curFirstX(v: PersonVisit): number {
+  return firstXMap.get(v) ?? 0;
+}
+function setFirstX(v: PersonVisit, x: number): void {
+  firstXMap.set(v, x);
+}
+
+export async function personVisits(params: {
+  camera: string | null;
+  from: Date;
+  to: Date;
+}): Promise<{
+  tables: import('../../types/chat.js').ChatTable[];
+  evidence: import('../../types/chat.js').ToolEvidence & { visits?: number };
+  images: import('../../types/chat.js').ChatImage[];
+}> {
+  const values: unknown[] = [params.from, params.to, CONFIDENCE_FLOOR];
+  let cameraCond = '';
+  if (params.camera) {
+    values.push(params.camera);
+    cameraCond = `AND ed.camera_id = $${values.length}`;
+  }
+
+  const rows = (await AppDataSource.query(
+    `SELECT ed.track_id,
+            ed.camera_id,
+            MIN(ed.timestamp) AS first_seen,
+            MAX(ed.timestamp) AS last_seen,
+            COUNT(*) AS obs,
+            COUNT(DISTINCT ed.event_id) AS events,
+            (ARRAY_AGG(ed.bbox_x ORDER BY ed.timestamp ASC))[1] AS first_x,
+            (ARRAY_AGG(ed.bbox_x ORDER BY ed.timestamp DESC))[1] AS last_x,
+            MAX(ed.identity) FILTER (WHERE ed.identity IS NOT NULL AND ed.identity != 'unknown') AS identity
+     FROM event_detections ed
+     WHERE ed.class = 'person'
+       AND ed.timestamp >= $1 AND ed.timestamp < $2
+       AND ed.confidence >= $3
+       ${cameraCond}
+     GROUP BY ed.track_id, ed.camera_id
+     ORDER BY first_seen`,
+    values,
+  )) as Array<Record<string, unknown>>;
+
+  const visits = clusterPersonVisits(
+    rows.map((r) => ({
+      camera: String(r.camera_id ?? '?'),
+      first: new Date(r.first_seen as Date),
+      last: new Date(r.last_seen as Date),
+      obs: Number(r.obs),
+      firstX: Number(r.first_x ?? 0),
+      lastX: Number(r.last_x ?? 0),
+      identity: r.identity ? String(r.identity) : null,
+    })),
+  );
+
+  const detections = rows.reduce((a, r) => a + Number(r.obs), 0);
+  const events = rows.reduce((a, r) => a + Number(r.events), 0);
+  const cameras = [...new Set(rows.map((r) => String(r.camera_id ?? '')).filter(Boolean))];
+
+  return {
+    tables: [
+      {
+        caption: `Person visits (track fragments merged; gaps > ${Math.round(SESSION_GAP_MS / 60000)} min split visits)`,
+        headers: ['Camera', 'Visit', 'Arrived (IST)', 'Last seen (IST)', 'Direction', 'Who', 'Tracks'],
+        rows: visits.map((v, i) => [
+          v.camera,
+          i + 1,
+          fmtIstTime(v.first),
+          fmtIstTime(v.last),
+          v.direction,
+          v.identity ?? 'unknown person',
+          v.trackCount,
+        ]),
+      },
+    ],
+    evidence: { detections, events, cameras, visits: visits.length, tracks: rows.length },
+    images: [],
   };
 }

@@ -773,13 +773,15 @@ export class EventSearchService {
       LIMIT 50
     `;
 
-    // 2. Keyword fallback (top 50)
+    // 2. Keyword fallback (top 50) — searches the caption text first (the
+    // same text that produced the embedding), then legacy fields.
     const keywordQuery = `
       SELECT e.*, 1 as distance, 1 as similarity
       FROM events e
       WHERE ${keywordConditions.join(' AND ')}
         AND (
-          e.camera_id ILIKE $${paramIndex}
+          e.scene_caption ILIKE $${paramIndex}
+          OR e.camera_id ILIKE $${paramIndex}
           OR e.file_path ILIKE $${paramIndex}
           OR e.metadata::text ILIKE $${paramIndex}
         )

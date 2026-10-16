@@ -1,13 +1,11 @@
 import { DataSource } from 'typeorm';
 import { StreamManager } from '../streams/rtspManager.js';
 import { ConsolidatedDetectionService } from '../detection/consolidatedDetectionService.js';
-import { ReviewService } from './review/reviewService.js';
 import { TimelineService } from './timeline/timelineService.js';
 import { DetectionService } from './detection/detectionService.js';
 import NotificationService from './notificationService.js';
 import { RetentionPolicyService } from './retentionPolicyService.js';
 import { AutomatedCleanupService } from './automatedCleanupService.js';
-import { PreviewService } from './preview/previewService.js';
 import { TimelapseService } from './timelapse/timelapseService.js';
 import { PythonWsClient } from './pythonWsClient.js';
 
@@ -49,16 +47,6 @@ class ServiceRegistry {
 
   getDetectionService(): ConsolidatedDetectionService {
     return this.getRequired<ConsolidatedDetectionService>('detectionService');
-  }
-
-  // ── ReviewService ──
-
-  setReviewService(service: ReviewService): void {
-    this.services.set('reviewService', service);
-  }
-
-  getReviewService(): ReviewService {
-    return this.getRequired<ReviewService>('reviewService');
   }
 
   // ── TimelineService ──
@@ -109,16 +97,6 @@ class ServiceRegistry {
 
   getAutomatedCleanupService(): AutomatedCleanupService {
     return this.getRequired<AutomatedCleanupService>('automatedCleanupService');
-  }
-
-  // ── PreviewService ──
-
-  setPreviewService(service: PreviewService): void {
-    this.services.set('previewService', service);
-  }
-
-  getPreviewService(): PreviewService {
-    return this.getRequired<PreviewService>('previewService');
   }
 
   // ── TimelapseService ──

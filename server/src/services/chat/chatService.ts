@@ -12,6 +12,8 @@ import {
   resolveVehicleClasses,
   semanticSearchParamsSchema,
   semanticSearchTool,
+  personVisits,
+  personVisitsParamsSchema,
   vehicleTimeline,
   vehicleTimelineParamsSchema,
 } from './queryTools.js';
@@ -50,9 +52,13 @@ Tools:
    params: { "range": same as above, "camera": string|null }
 
 7. tool="semantic_search" — the user describes a SCENE or MOMENT to find (e.g. "someone at the gate at night", "a car parked in the driveway", "dog in the yard", "person carrying something", "show me when the package arrived"). Use this when the question asks to find/locate/show specific events matching a description rather than count or summarize. Pass the user's descriptive phrase VERBATIM as "query" — do not rephrase it.
-   params: { "query": string, "camera": string|null, "limit": int (1-10, default 5) }
+   params: { "query": string, "camera": string|null, "limit": int (1-10, default 5), "from": "YYYY-MM-DD|null", "to": "YYYY-MM-DD|null" }
+    If the question names a time ("last night", "yesterday", "on October 10"), pass from/to ISO dates; otherwise omit them (whole archive).
 
-8. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
+8. tool="person_visits" — question asks WHO came or went / visited / arrived / left, or "did anyone come while I was out" (people only — use vehicle_timeline for vehicles). Also use for "how long did the person stay".
+   params: { "range": same as above, "camera": string|null }
+
+9. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
 
 Accuracy rules — MANDATORY:
 - Never invent dates, times, counts, camera names, or vehicle classes.
@@ -86,6 +92,7 @@ const classificationSchema = z.object({
     'event_correlation',
     'anomalies',
     'semantic_search',
+    'person_visits',
     'fallback',
   ]),
   params: z.record(z.unknown()),
@@ -144,8 +151,27 @@ async function classify(message: string): Promise<{ tool: string; params: Record
   return parsed.data;
 }
 
-async function answerFallback(message: string, history: ChatMessage[]): Promise<ClassifiedChatResult> {
-  const context = history
+const SEMANTIC_ANSWER_SYSTEM = `You answer a home-security camera question using ONLY the matched-event table provided. Rules:
+- Cite each claim with its timestamp and camera from the table.
+- Do not invent objects, counts, people, or times not present in the rows.
+- 3-6 sentences of markdown. Mention similarity only loosely ("best match", "closest").
+- If the matches seem off-topic, say what the archive actually shows instead.`;
+
+async function synthesizeSemanticAnswer(
+  query: string,
+  table: { caption?: string; headers?: string[]; rows?: (string | number | null)[][] },
+): Promise<string> {
+  const tableText = [
+    table.caption ?? 'Matched events',
+    (table.headers ?? []).join(' | '),
+    ...(table.rows ?? []).map((r) => r.join(' | ')),
+  ].join('\n');
+  return chatLlm(SEMANTIC_ANSWER_SYSTEM, `Question: find "${query}"\n\nMatched events:\n${tableText}`, {
+    maxTokens: 400,
+  });
+}
+
+async function answerFallback(message: string, history: ChatMessage[]): Promise<ClassifiedChatResult> {  const context = history
     .slice(-6)
     .map((m) => `${m.role}: ${m.content}`)
     .join('\n');
@@ -174,7 +200,7 @@ export async function runClassifiedChat(
 
   if (tool === 'fallback') return answerFallback(trimmed, history);
 
-  // semantic_search needs no time range — hits span the whole archive.
+  // semantic_search: optional time window, whole archive otherwise.
   if (tool === 'semantic_search') {
     const parsed = semanticSearchParamsSchema.safeParse(classified.params);
     if (!parsed.success) throw new ChatError('Missing/invalid semantic search params', 422);
@@ -182,6 +208,8 @@ export async function runClassifiedChat(
       query: parsed.data.query,
       camera: parsed.data.camera ?? null,
       limit: parsed.data.limit,
+      from: parsed.data.from ?? null,
+      to: parsed.data.to ?? null,
     });
     const rows = tables[0]?.rows ?? [];
     const windowLabel = `${evidence.events} matches (${evidence.detections} hits)`;
@@ -197,10 +225,19 @@ export async function runClassifiedChat(
       lines.push('');
       lines.push('Full detail (relations, verification, AI analysis) on each event card in Events.');
     }
+    const linkTable = lines.join('\n');
+    let content = linkTable;
+    if (rows.length > 0 && tables[0]) {
+      try {
+        content = await synthesizeSemanticAnswer(parsed.data.query, tables[0]);
+      } catch (err) {
+        logger.warn('semantic answer synthesis failed; using link table', 'Chat', err);
+      }
+    }
     return {
       tool,
       params: { query: parsed.data.query, camera: parsed.data.camera ?? null, limit: parsed.data.limit },
-      answer: { type: 'markdown', content: lines.join('\n') },
+      answer: { type: 'markdown', content },
       tables,
       evidence: { ...evidence, window: windowLabel },
       images,
@@ -208,6 +245,37 @@ export async function runClassifiedChat(
   }
 
   const range = resolveParamsRange(classified.params);
+
+  if (tool === 'person_visits') {
+    const parsed = personVisitsParamsSchema.safeParse(classified.params);
+    if (!parsed.success) throw new ChatError('Missing/invalid person visit params', 422);
+    const { tables, evidence, images } = await personVisits({
+      camera: parsed.data.camera ?? null,
+      from: range.from,
+      to: range.to,
+    });
+    const visitRows = tables[0].rows;
+    const lines: string[] = [];
+    if (visitRows.length === 0) {
+      lines.push(`No person visits in the window (${range.label}).`);
+    } else {
+      lines.push(`## ${visitRows.length} person visit${visitRows.length === 1 ? '' : 's'} (${range.label})`);
+      lines.push('');
+      for (const r of visitRows) {
+        lines.push(`- ${r[5]} — arrived **${r[2]}**, last seen ${r[3]} on ${r[0]} (${r[4]})`);
+      }
+      lines.push('');
+      lines.push('Visits = person tracks merged by 5-min gaps. Identity shows only after face enrollment.');
+    }
+    return {
+      tool,
+      params: { camera: parsed.data.camera ?? null, range: range.label },
+      answer: { type: 'markdown', content: lines.join('\n') },
+      tables,
+      evidence: { ...evidence, window: range.label },
+      images,
+    };
+  }
 
   if (tool === 'vehicle_timeline') {
     const parsed = vehicleTimelineParamsSchema.safeParse(classified.params);

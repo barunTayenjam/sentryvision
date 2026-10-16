@@ -6,10 +6,8 @@ import { setCameras, loadCamerasFromFile } from '../config/cameraLoader.js';
 import { config, type CameraConfig } from '../config/index.js';
 import { setupRTSPStreams } from '../streams/rtspManager.js';
 import { consolidatedDetectionService } from '../detection/consolidatedDetectionService.js';
-import { ReviewService } from '../services/review/reviewService.js';
 import { TimelineService } from '../services/timeline/timelineService.js';
 import { DetectionService } from '../services/detection/detectionService.js';
-import { PreviewService } from '../services/preview/previewService.js';
 import { TimelapseService } from '../services/timelapse/timelapseService.js';
 import { setTimelapseService } from '../routes/timelapse.js';
 import { retentionPolicyService } from '../services/retentionPolicyService.js';
@@ -24,8 +22,6 @@ import { SceneTracker } from '../pipeline/sceneTracker.js';
 import { BroadcastGate } from '../pipeline/broadcastGate.js';
 import { initMqttService } from '../services/mqttService.js';
 import { TrackDeduplicator } from '../pipeline/trackDeduplicator.js';
-import { ReviewSegment } from '../models/ReviewSegment.js';
-import { UserReviewStatus } from '../models/UserReviewStatus.js';
 import { Timeline } from '../models/Timeline.js';
 import { AdaptiveRegion } from '../models/AdaptiveRegion.js';
 import { DetectionConfig } from '../models/DetectionConfig.js';
@@ -275,34 +271,24 @@ export async function initializeServices(io: SocketIOServer): Promise<void> {
   }
 
   try {
-    logger.info('Initializing review, timeline and detection services...', 'INIT');
-    const reviewSegmentRepo = AppDataSource.getRepository(ReviewSegment);
-    const reviewStatusRepo = AppDataSource.getRepository(UserReviewStatus);
+    logger.info('Initializing timeline and detection services...', 'INIT');
     const timelineRepo = AppDataSource.getRepository(Timeline);
     const regionRepo = AppDataSource.getRepository(AdaptiveRegion);
 
     const timelineServiceInstance = new TimelineService(timelineRepo, regionRepo);
-    const previewServiceInstance = new PreviewService(timelineServiceInstance);
     const timelapseServiceInstance = new TimelapseService();
     setTimelapseService(timelapseServiceInstance);
     const detectionServiceInstance = new DetectionService();
-    const reviewServiceInstance = new ReviewService(
-      reviewSegmentRepo,
-      reviewStatusRepo,
-      timelineServiceInstance,
-      previewServiceInstance,
-    );
 
     serviceRegistry.setTimelineService(timelineServiceInstance);
     serviceRegistry.setTimelapseService(timelapseServiceInstance);
     serviceRegistry.setDetectionConfigService(detectionServiceInstance);
-    serviceRegistry.setReviewService(reviewServiceInstance);
     logger.info(
-      'Review, timeline, timelapse and detection services initialized successfully',
+      'Timeline, timelapse and detection services initialized successfully',
       'INIT',
     );
   } catch (error) {
-    logger.error('Review/timeline/detection services failed (non-critical)', 'INIT', error);
+    logger.error('Timeline/detection services failed (non-critical)', 'INIT', error);
   }
 
   try {
