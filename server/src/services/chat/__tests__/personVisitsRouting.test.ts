@@ -31,7 +31,12 @@ const classifyJson = JSON.stringify({
 describe('chatService person_visits routing', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    mockLlm.mockResolvedValue(classifyJson);
+    // Call 1 = classification (returns classifyJson), call 2 = synthesis (returns link table text).
+    mockLlm
+      .mockResolvedValueOnce(classifyJson)
+      .mockResolvedValue(
+        '## 1 person visit (today)\n\n- unknown person — arrived 04:30, last seen 04:32 on cam1 (left-to-right)\n\nVisits = person tracks merged by 5-min gaps. Identity shows only after face enrollment.'
+      );
   });
 
   it('routes who-came questions to person_visits and returns visit lines', async () => {

@@ -267,10 +267,19 @@ export async function runClassifiedChat(
       lines.push('');
       lines.push('Visits = person tracks merged by 5-min gaps. Identity shows only after face enrollment.');
     }
+    const linkTable = lines.join('\n');
+    let content = linkTable;
+    if (visitRows.length > 0 && tables[0]) {
+      try {
+        content = await synthesizeSemanticAnswer(parsed.data.query, tables[0]);
+      } catch (err) {
+        logger.warn('person_visits semantic answer synthesis failed; using link table', 'Chat', err);
+      }
+    }
     return {
       tool,
       params: { camera: parsed.data.camera ?? null, range: range.label },
-      answer: { type: 'markdown', content: lines.join('\n') },
+      answer: { type: 'markdown', content },
       tables,
       evidence: { ...evidence, window: range.label },
       images,
