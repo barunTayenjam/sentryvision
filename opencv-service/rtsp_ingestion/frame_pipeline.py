@@ -344,6 +344,17 @@ class InProcessYOLO:
             free_memory_gb=free_memory_gb,
         )
 
+        # A missing preferred model silently degrades detection (the
+        # CrowdHuman-v8s outage fell back to yolov5n and evening humans
+        # vanished from events). Make it impossible to miss in the logs.
+        preferred_file = model_priority[0][0] if model_priority else None
+        if preferred_file and not os.path.exists(os.path.join(self._models_dir, preferred_file)):
+            print(
+                f"[InProcessYOLO] !! REQUESTED MODEL MISSING: {preferred_file} not found in "
+                f"{self._models_dir} — falling back down the chain; person recall will be degraded. "
+                f"Run download_all_models.py or rebuild the image."
+            )
+
         for filename, mtype in model_priority:
             if mtype == "yolov4":
                 weights = os.path.join(self._models_dir, filename)
@@ -796,7 +807,18 @@ class FramePipeline:
         self._detection_queue: queue.Queue = queue.Queue(maxsize=2)
 
         self._motion_gate = MotionGate(camera_id=self._camera_id, pixel_threshold=MOTION_PIXEL_THRESHOLD)
-        self._tracker = ByteTracker(track_thresh=0.25, match_thresh=0.8, track_buffer=30, frame_rate=DETECTION_FPS)
+        # max_time_lost must span the YOLO throttle gap: update() runs at
+        # DETECTION_FPS but YOLO only fires every YOLO_MIN_INTERVAL_MS (2s),
+        # so a person missed on ONE run gets 4 empty updates/sec. The old
+        # track_buffer=30 → max_time_lost=4 ≈ 1s removed the track before
+        # the next sighting, reset tracklet_len, and the PERSON_MIN_TRACK_HITS
+        # gate never opened for short visits. 240 → 32 updates ≈ 8s.
+        self._tracker = ByteTracker(
+            track_thresh=0.25,
+            match_thresh=0.8,
+            track_buffer=int(os.getenv("TRACK_BUFFER_FRAMES", "240")),
+            frame_rate=DETECTION_FPS,
+        )
         self._identity_cache = IdentityCache(ttl=30.0)
         self._snapshotted_tracks: set = set()
         # Snapshot path per track: reattached to every subsequent WS event so
