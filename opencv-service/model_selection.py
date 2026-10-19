@@ -60,8 +60,12 @@ AVAILABLE_MODELS = {
     "coco_qat_640x384.onnx": "yolov8-qat",
 }
 
-_GPU_CHAIN = ["yolov8n.onnx", "yolov8s.onnx", "yolov8m.onnx", "yolov5n.onnx"]
-_MEMORY_CHAIN = ["yolov8n.onnx", "yolov5n.onnx"]
+# crowdhuman_qat (v8n QAT person-specialist, 3.2MB) sits ahead of the generic
+# COCO fallbacks: if the preferred v8s model is ever absent again, recall drops
+# from 0.884 to 0.864 (still person-specialised) instead of to yolov5n's
+# generic-COCO person recall — the silent outage fixed 2026-10-18.
+_GPU_CHAIN = ["yolov8n.onnx", "crowdhuman_qat_640x384.onnx", "yolov8s.onnx", "yolov8m.onnx", "yolov5n.onnx"]
+_MEMORY_CHAIN = ["yolov8n.onnx", "crowdhuman_qat_640x384.onnx", "yolov5n.onnx"]
 _LOW_MEMORY_CHAIN = ["yolov5n.onnx", "yolov4-tiny.weights"]
 
 

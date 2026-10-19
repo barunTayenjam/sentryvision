@@ -355,6 +355,17 @@ class InProcessYOLO:
                 f"Run download_all_models.py or rebuild the image."
             )
 
+        # A missing preferred model silently degrades detection (the
+        # CrowdHuman-v8s outage fell back to yolov5n and evening persons
+        # vanished from events). Make it impossible to miss in the logs.
+        preferred_file = model_priority[0][0] if model_priority else None
+        if preferred_file and not os.path.exists(os.path.join(self._models_dir, preferred_file)):
+            print(
+                f"[InProcessYOLO] !! REQUESTED MODEL MISSING: {preferred_file} not found in "
+                f"{self._models_dir} — falling back down the chain; person recall will be degraded. "
+                f"Run download_all_models.py or rebuild the image."
+            )
+
         for filename, mtype in model_priority:
             if mtype == "yolov4":
                 weights = os.path.join(self._models_dir, filename)
@@ -406,6 +417,7 @@ class InProcessYOLO:
                     self._ort_runner = None
                     if mtype == "yolov8-qat" and os.getenv("QAT_ORT", "0") == "1":
                         self._ort_runner = _make_ort_runner(path)
+                    self._model_file = filename
                     self._initialized = True
                     print(f"[InProcessYOLO] {mtype} initialized with {label} backend (free RAM: {free_memory_gb:.1f}GB)")
                     return True
@@ -720,6 +732,7 @@ class InProcessYOLO:
         return {
             'backend': self._backend_label,
             'model_type': self._model_type,
+            'model_file': getattr(self, '_model_file', None),
             'last_inference_ms': round(self._last_inference_ms, 1),
             'inference_count': self._inference_count,
             'avg_inference_ms': round(self._total_inference_ms / max(1, self._inference_count), 1),

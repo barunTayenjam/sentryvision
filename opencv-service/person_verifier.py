@@ -58,7 +58,11 @@ class HumanVerifier:
                         min_detection_confidence=0.5,
                         min_tracking_confidence=0.5,
                     )
-                except Exception:
+                except Exception as e:
+                    # Silent degradation cost recall: the pose tier is what
+                    # verifies back-facing persons. Log it loudly.
+                    print(f"[HumanVerifier] !! MEDIAPIPE POSE UNAVAILABLE: {e} — "
+                          f"person verification degrades to face/score_floor tiers only")
                     self._pose = False
             return self._pose
 
@@ -69,7 +73,9 @@ class HumanVerifier:
                 try:
                     from uniface import FaceAnalyzer
                     self._face_analyzer = FaceAnalyzer()
-                except ImportError:
+                except ImportError as e:
+                    print(f"[HumanVerifier] !! UNIFACE FACE ANALYZER UNAVAILABLE: {e} — "
+                          f"person verification degrades to pose/score_floor tiers only")
                     self._face_analyzer = False
             return self._face_analyzer
 
