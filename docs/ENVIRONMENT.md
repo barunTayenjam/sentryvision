@@ -91,8 +91,20 @@ fails fast if `MQTT_ENABLED=true` without `MQTT_HOST`.
 | `NVIDIA_API_KEY` | For AI features | — | NVIDIA NIM API key |
 | `NVIDIA_API_BASE_URL` | No | — | Custom endpoint (or Ollama) |
 | `NVIDIA_MODEL` | No | — | Model name override |
+| `AI_ROLE_SCENE` | No | `nvidia` | GenAI provider for scene analysis (`nvidia` \| `local`) |
+| `AI_ROLE_CHAT` | No | `nvidia` | GenAI provider for AskPage/chat (`nvidia` \| `local`) |
+| `LOCAL_AI_BASE_URL` | If `AI_ROLE_*=local` | — | OpenAI-compatible base URL (llama.cpp / Ollama, e.g. `http://localhost:11434/v1`) |
+| `LOCAL_AI_MODEL` | If `AI_ROLE_*=local` | — | Model name/alias (e.g. `qwen2.5:7b`) |
 
-**Terminology note:** Despite the `NVIDIA_` prefix, any OpenAI-compatible endpoint works (Ollama, vLLM, etc.).
+**Terminology note:** Despite the `NVIDIA_` prefix, any OpenAI-compatible endpoint works (Ollama, vLLM, etc.). `AI_ROLE_*` selects which provider handles each role — a role whose provider is missing config falls back to the other configured provider so a dead endpoint never disables a role.
+
+## Detection (OpenCV service)
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `DETECTOR_BACKEND` | No | `auto` | Force inference engine for any model: `ort` (onnxruntime INT8) or `dnn` (cv2.dnn). `auto` keeps the legacy per-model default. |
+| `QAT_ORT` | No | `0` | Legacy: `1` runs QAT models via onnxruntime INT8 (superseded by `DETECTOR_BACKEND=ort`) |
+| `CAMERA_FACE_CACHE_TTL` | No | `600` | Seconds to retain face embeddings from ended tracks for visitor-session matching |
 
 ## Frontend
 

@@ -73,7 +73,7 @@ from scene_analyzer import SceneAnalyzer
 from person_analyzer import PersonAnalyzer
 from threat_detector import ThreatDetector
 from person_verifier import HumanVerifier
-from model_selection import resolve_model_priority
+from model_selection import resolve_model_priority, resolve_backend_engine
 from bbox_coords import align_event_bbox
 
 try:
@@ -411,11 +411,18 @@ class InProcessYOLO:
                         self._min_box_side = int(os.getenv("YOLO_QAT_MIN_BOX_SIDE", "20"))
                         self._min_box_area = int(os.getenv("YOLO_QAT_MIN_BOX_AREA", "600"))
                     # INT8-native execution: onnxruntime runs QDQ models
-                    # quantized (37ms v8n / 112ms v8s on this host); cv2.dnn
-                    # dequantizes them to fp32 (83ms) for identical boxes.
-                    # Disabled unless QAT_ORT=1 (env) — zero behaviour change.
+                    # quantized natively; cv2.dnn dequantizes them to fp32
+                    # for identical boxes. Host-measured v8s QAT: 131ms ORT
+                    # INT8 vs 187ms cv2.dnn QDQ (1.43x). Engine is chosen by
+                    # resolve_backend_engine(): DETECTOR_BACKEND env forces
+                    # one for any model type; default auto keeps the legacy
+                    # QAT_ORT=1 gate — zero behaviour change when unset.
                     self._ort_runner = None
-                    if mtype == "yolov8-qat" and os.getenv("QAT_ORT", "0") == "1":
+                    if resolve_backend_engine(
+                        os.getenv("DETECTOR_BACKEND"),
+                        model_type=mtype,
+                        qat_ort=os.getenv("QAT_ORT", "0"),
+                    ) == "ort":
                         self._ort_runner = _make_ort_runner(path)
                     self._model_file = filename
                     self._initialized = True
@@ -773,6 +780,67 @@ class IdentityCache:
             del self._store[k]
 
 
+class PerCameraFaceCache:
+    """Retain face embeddings from ended tracks per camera for visitor sessions.
+
+    Unlike IdentityCache which expires after 30s per-track, this cache
+    holds identities for a longer window (configurable via CAMERA_FACE_CACHE_TTL,
+    default 10 minutes) so that events belonging to the same person who
+    appears across multiple motion events get connected.
+
+    Design:
+    - Key: track_id
+    - Value: (identity_embedding_512, camera_id, timestamp, ttl)
+    - On lookup, also verify track_id still active (not in active tracker).
+    """
+
+    def __init__(self, ttl_seconds: int = 600, max_entries: int = 500):
+        self._ttl = ttl_seconds
+        self._max = max_entries
+        self._store: Dict[int, tuple] = {}  # track_id → (embedding, cam_id, ts, ttl)
+        self._access_count: Dict[int, int] = {}  # LRU hint
+
+    def get(self, track_id: int, camera_id: str) -> Optional[Dict[str, Any]]:
+        """Return identity dict if within TTL and track_id on different camera."""
+        entry = self._store.get(track_id)
+        if entry is None:
+            return None
+        emb, cam, ts, _ = entry
+        if time.time() - ts > self._ttl:
+            self.invalidate(track_id)
+            return None
+        # only serve identity from the same camera; cross-camera is
+        # handled by caller matching against the per-camera set
+        if cam != camera_id:
+            return None
+        self._access_count[track_id] = self._access_count.get(track_id, 0) + 1
+        return {"embedding": emb, "camera_id": cam, "ts": ts}
+
+    def put(self, track_id: int, camera_id: str, embedding: np.ndarray) -> None:
+        """Store identity from a track end. LRU-evict if over max_entries."""
+        now = time.time()
+        # Evict if at capacity (simple count-based, good enough)
+        if len(self._store) >= self._max and track_id not in self._store:
+            # remove least-recently-accessed
+            lru = min(self._access_count, key=self._access_count.get, default=None)
+            if lru is not None:
+                self.invalidate(lru)
+        self._store[track_id] = (embedding, camera_id, now, self._ttl)
+        self._access_count[track_id] = 0
+
+    def invalidate(self, track_id: int) -> None:
+        self._store.pop(track_id, None)
+        self._access_count.pop(track_id, None)
+
+    def cleanup(self) -> None:
+        now = time.time()
+        expired = [
+            k for k, (_, _, ts, _t) in self._store.items() if now - ts > self._ttl
+        ]
+        for k in expired:
+            self.invalidate(k)
+
+
 class FramePipeline:
     """Per-camera pipeline with decoupled live streaming and detection.
 
@@ -833,6 +901,13 @@ class FramePipeline:
             frame_rate=DETECTION_FPS,
         )
         self._identity_cache = IdentityCache(ttl=30.0)
+        # Per-camera face cache: keeps embeddings of ended tracks for
+        # CAMERA_FACE_CACHE_TTL seconds (default 600) so the same visitor's
+        # repeated appearances reuse the stored identity without re-running
+        # the ArcFace detector, and events connect into visitor sessions.
+        self._face_cache = PerCameraFaceCache(
+            ttl_seconds=int(os.getenv("CAMERA_FACE_CACHE_TTL", "600"))
+        )
         self._snapshotted_tracks: set = set()
         # Snapshot path per track: reattached to every subsequent WS event so
         # Node's filePath-based persistence gate survives a dropped message.
@@ -1421,7 +1496,25 @@ class FramePipeline:
                                 fx2 = min(full_w, int((x + w_b) * sx) + pad_x)
                                 fy2 = min(full_h, int((y + h_b) * sy) + pad_y)
                                 crop = fullres[fy:fy2, fx:fx2]
-                                if crop.size > 0:
+                                # Quality gate: reject candidates whose crop
+                                # is too small for a reliable ArcFace embed-
+                                # ding (<48px side) — matches the floor
+                                # inside extract_face_embedding, but rejects
+                                # BEFORE the ~0.5s detector runs and logs the
+                                # reason (inspectable-by-default).
+                                ch, cw = crop.shape[:2] if crop.size else (0, 0)
+                                if ch < 48 or cw < 48:
+                                    print(
+                                        f"[FramePipeline:{self._camera_id}] "
+                                        f"Rejected face candidate t{tid}: crop {cw}x{ch}px < 48px floor"
+                                    )
+                                    self._queue_pipeline_log(
+                                        "info",
+                                        "FaceRecognition",
+                                        f"Rejected face candidate t{tid}: crop {cw}x{ch}px below 48px floor",
+                                        track_id=tid,
+                                    )
+                                elif crop.size > 0:
                                     res = self._face_recognition_fn(crop)
                                     if isinstance(res, (tuple, list)) and len(res) >= 2:
                                         name, conf = res[0], res[1]

@@ -115,3 +115,35 @@ def resolve_model_priority(preferred=None, gpu_available: bool = False, free_mem
         if name in AVAILABLE_MODELS and name not in [n for n, _ in ordered]:
             ordered.append((name, AVAILABLE_MODELS[name]))
     return ordered
+
+
+def resolve_backend_engine(
+    detector_backend=None,
+    model_type: str = "",
+    qat_ort: str = "0",
+) -> str:
+    """Resolve which execution engine runs the model: "ort" or "dnn".
+
+    DETECTOR_BACKEND env forces an engine for every model type, making
+    engine choice a config change. "auto" (default) preserves the legacy
+    behaviour: QAT models run ORT-int8 only when QAT_ORT=1, everything
+    else stays on cv2.dnn.
+
+    Args:
+        detector_backend: DETECTOR_BACKEND env value ("ort"|"dnn"|"auto"|None).
+        model_type: type string from AVAILABLE_MODELS (e.g. "yolov8-qat").
+        qat_ort: legacy QAT_ORT env value ("1" enables ORT for QAT).
+
+    Returns:
+        "ort" or "dnn".
+    """
+    if detector_backend is not None:
+        value = str(detector_backend).strip().lower()
+        if value == "ort":
+            return "ort"
+        if value == "dnn":
+            return "dnn"
+        # unknown values fall through to auto
+    if str(model_type) == "yolov8-qat" and str(qat_ort) == "1":
+        return "ort"
+    return "dnn"
