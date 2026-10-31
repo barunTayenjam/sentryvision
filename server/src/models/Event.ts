@@ -146,6 +146,14 @@ export class Event {
   })
   relations!: import('../types/event.js').EventRelation[] | null;
 
+  @Column({
+    type: 'text',
+    nullable: true,
+    comment:
+      "User verdict: false_positive | false_negative | confirmed; one per event, updated in place. Feeds export-training-set.py (parity #7 Phase A)",
+  })
+  user_feedback!: 'false_positive' | 'false_negative' | 'confirmed' | null;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;
 }

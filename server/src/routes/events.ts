@@ -10,4 +10,8 @@ router.get('/:id/relation-threat', optionalAuth, (req, res) =>
   eventController.getEventRelationThreat(req, res),
 );
 
+router.patch('/:id/feedback', optionalAuth, (req, res) =>
+  eventController.setFeedback(req, res),
+);
+
 export default router;

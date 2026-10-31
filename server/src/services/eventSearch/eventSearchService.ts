@@ -14,6 +14,14 @@ import type {
 export class EventSearchService {
   private eventRepository = AppDataSource.getRepository(Event);
 
+  async setEventFeedback(id: string, feedback: 'false_positive' | 'false_negative' | 'confirmed' | null): Promise<Event | null> {
+    const event = await this.eventRepository.findOne({ where: { id } });
+    if (!event) return null;
+    event.user_feedback = feedback;
+    await this.eventRepository.save(event);
+    return event;
+  }
+
   private getConfidenceThreshold(level: string): number {
     switch (level) {
       case 'low':
@@ -118,6 +126,7 @@ export class EventSearchService {
       min_confidence,
       max_confidence,
       face_status,
+      jev_urgent,
     } = filters;
 
     const currentPage = Math.max(1, parseInt(page));
@@ -191,6 +200,10 @@ export class EventSearchService {
           break;
       }
     }
+    if (jev_urgent !== undefined && jev_urgent !== 'all') {
+      const op = jev_urgent === 'true' ? '=' : '<>';
+      conditions.push(`COALESCE(e.threat_assessment->>'is_urgent', 'false') ${op} 'true'`);
+    }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const orderClause =
@@ -214,7 +227,10 @@ export class EventSearchService {
         a.scene_description, a.scene_context, a.threat_level, a.threat_confidence,
         a.detected_people, a.detected_vehicles, a.detected_objects,
         a.detected_animals, a.recommended_actions, a.additional_observations,
-        a.model_used, a.processing_time_ms, a.analyzed_at
+        a.model_used, a.processing_time_ms, a.analyzed_at,
+        e.threat_assessment->>'is_urgent' AS jev_urgent,
+        e.threat_assessment->>'noul_score' AS jev_score,
+        e.threat_assessment->>'level' AS jev_level
       FROM events e
       LEFT JOIN ai_analysis_results a ON e.id::text = a.event_id
       ${whereClause} ${orderClause} LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
@@ -256,6 +272,13 @@ export class EventSearchService {
       metadata: safeObject(row.metadata),
       label: row.label,
       is_read: row.is_read,
+      jev: row.jev_score
+        ? {
+            isUrgent: row.jev_urgent === 'true',
+            score: Number(row.jev_score),
+            level: (row.jev_level as string) || 'low',
+          }
+        : null,
       object_detections:
         typeof row.object_detections === 'string'
           ? JSON.parse(row.object_detections as string)

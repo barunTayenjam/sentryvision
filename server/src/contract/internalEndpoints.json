@@ -143,5 +143,10 @@
     "method": "POST",
     "path": "/api/faces/enroll-from-event/:eventId",
     "reason": "frontend face enrollment \u2014 names a person from an event snapshot, retrains ArcFace live"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/events/:id/feedback",
+    "reason": "feedback loop Phase A verdict store (parity #7); consumed by events UI verdict buttons (pending) and scripts/export-training-set.py dataset export"
   }
 ]
