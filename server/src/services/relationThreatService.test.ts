@@ -1,5 +1,8 @@
 import { describe, it, expect, jest, beforeEach, beforeAll } from '@jest/globals';
 
+// Disable JEV pre-filter for tests so LLM path is exercised
+process.env.JEV_PREFILTER = 'false';
+
 jest.unstable_mockModule('../database.js', () => ({
   AppDataSource: { query: jest.fn() },
 }));

@@ -148,5 +148,15 @@
     "method": "PATCH",
     "path": "/api/events/:id/feedback",
     "reason": "feedback loop Phase A verdict store (parity #7); consumed by events UI verdict buttons (pending) and scripts/export-training-set.py dataset export"
+  },
+  {
+    "method": "POST",
+    "path": "/api/nvidia/assess-threat",
+    "reason": "threat assessment entry (nvidiaController.assessThreat) — accepts {state} or {eventId}; called by curl/automation and the threat pipeline, not the frontend UI"
+  },
+  {
+    "method": "POST",
+    "path": "/api/digests/generate/*",
+    "reason": "daily digest regeneration for a date (digestService.generate calls POST /api/digests/generate; the :date variant is the same handler for backfill); route scanner sees the wildcard shape"
   }
 ]

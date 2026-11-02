@@ -117,10 +117,10 @@ describe('persistAndPushDigest', () => {
 
     expect(result.persisted).toBe(true);
     expect(result.pushed).toBe(1);
-    expect(mockSendNotificationToUser).toHaveBeenCalledWith(
-      'u1',
-      expect.objectContaining({ url: expect.stringContaining('/events?digest=') }),
-      'system',
-    );
+    // The push notification payload nests url under data: { body, data: { url }, title }
+    const sentArgs = mockSendNotificationToUser.mock.calls[0];
+    expect(sentArgs[0]).toBe('u1');
+    expect(sentArgs[1].data.url).toMatch('/events?digest=');
+    expect(sentArgs[2]).toBe('system');
   });
 });

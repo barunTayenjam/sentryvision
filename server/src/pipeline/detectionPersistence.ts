@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { TrackingEvent } from '../services/pythonWsClient.js';
 import NotificationService from '../services/notificationService.js';
 import { VEHICLE_CLASSES } from '../shared/constants.js';
+import { assessThreat, buildEventState, mapToThreatAssessment } from '../services/jevThreatService.js';
 import { embedEventScene } from '../services/eventSearch/sceneEmbeddingService.js';
 import { isSceneMemoryEnabled, compareEventToBaseline } from '../services/sceneMemoryService.js';
 import { enqueueRelationJob } from '../services/relationQueue.js';
@@ -27,6 +28,36 @@ function emitMqttEvent(cameraId: string, eventId: string, eventType: string, sco
     if (eventType === 'person') getMqttService()?.publishPersonState(cameraId, true);
   } catch (err) {
     logger.debug('MQTT publish failed (non-blocking)', 'PIPELINE', err);
+  }
+}
+
+/**
+ * Publish jev urgency to MQTT (retained person topic + non-retained event topic)
+ * once the assessment resolves. HA automations key off `jev_urgent`.
+ */
+function emitMqttJev(cameraId: string, eventId: string, eventType: string, assessment: {
+  isUrgent: boolean;
+  threatScore: number;
+  threatLevel: string;
+}) {
+  try {
+    const svc = getMqttService();
+    if (!svc) return;
+    svc.publishEvent(cameraId, {
+      id: eventId,
+      camera: cameraId,
+      type: eventType,
+      jev_urgent: assessment.isUrgent,
+      jev_score: Number(assessment.threatScore.toFixed(2)),
+      jev_level: assessment.threatLevel,
+      timestamp: new Date().toISOString(),
+    });
+    if (eventType === 'person') {
+      svc.publishPersonState(cameraId, true);
+      svc.publishJevUrgent(cameraId, assessment.isUrgent);
+    }
+  } catch (err) {
+    logger.debug('MQTT jev publish failed (non-blocking)', 'PIPELINE', err);
   }
 }
 
@@ -380,21 +411,86 @@ export async function persistDetectionEvent(
     }
   }
 
+  // JEV threat assessment: gate notification urgency, update event threat_assessment.
+  // Fire-and-forget: never blocks event persistence.
+  if (process.env.JEV_NOTIFICATION_GATE !== 'false') {
+    void (async () => {
+      const state = buildEventState({
+        cameraId,
+        eventType: eventTypeStr,
+        personsDetected: personDets.length,
+        faceDetected: identifiedDets.length > 0,
+        // Guard: event.timestamp can be truthy-but-invalid (e.g. a Date
+        // from a mocked repo or a legacy string) — new Date(...).toISOString()
+        // throws RangeError on Invalid Date and the gate must never take
+        // the persistence path down with it.
+        timestamp: (() => {
+          const d = new Date(event.timestamp as string | number | Date);
+          return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+        })(),
+        additionalContext: className ? `detected ${className}` : '',
+      });
+
+      try {
+        const assessment = await assessThreat(state);
+        event.threat_assessment = {
+          ...(event.threat_assessment as Record<string, unknown> | null),
+          ...mapToThreatAssessment(assessment),
+        };
+        await AppDataSource.getRepository(Event).save(event);
+        logger.info(
+          `[DetectionPersistence] JEV assessment for ${event.id}: level=${assessment.threatLevel} urgent=${assessment.isUrgent}`,
+          'PIPELINE',
+        );
+        emitMqttJev(cameraId, event.id, eventTypeStr, {
+          isUrgent: assessment.isUrgent,
+          threatScore: assessment.threatScore,
+          threatLevel: assessment.threatLevel,
+        });
+
+        if (!assessment.notifyNow && !assessment.isUrgent) {
+          logger.info(
+            `[DetectionPersistence] JEV suppressed push for ${event.id} (non-urgent, score=${assessment.threatScore.toFixed(2)})`,
+            'PIPELINE',
+          );
+          return;
+        }
+
+        dispatchEventNotification(eventTypeStr, event, className, assessment.isUrgent);
+      } catch (jevErr) {
+        logger.warn(
+          `[DetectionPersistence] JEV gate failed, falling back to notify: ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`,
+          'PIPELINE',
+        );
+        dispatchEventNotification(eventTypeStr, event, className, false);
+      }
+    })();
+  } else {
+    dispatchEventNotification(eventTypeStr, event, className, false);
+  }
+}
+
+function dispatchEventNotification(
+  eventTypeStr: string,
+  event: Event,
+  className: string,
+  isUrgent: boolean,
+): void {
   try {
     if (eventTypeStr === 'person') {
-      NotificationService.notifyObjectDetected(event, [className]).catch((err: unknown) => {
+      NotificationService.notifyObjectDetected(event, [className], isUrgent).catch((err: unknown) => {
         logger.error('Object detection notification failed', 'PIPELINE', err);
       });
     } else if (eventTypeStr === 'face') {
-      NotificationService.notifyUnknownFace(event).catch((err: unknown) => {
+      NotificationService.notifyUnknownFace(event, isUrgent).catch((err: unknown) => {
         logger.error('Unknown face notification failed', 'PIPELINE', err);
       });
     } else if (eventTypeStr === 'vehicle') {
-      NotificationService.notifyObjectDetected(event, [className]).catch((err: unknown) => {
+      NotificationService.notifyObjectDetected(event, [className], isUrgent).catch((err: unknown) => {
         logger.error('Vehicle notification failed', 'PIPELINE', err);
       });
     } else {
-      NotificationService.notifyMotionEvent(event).catch((err: unknown) => {
+      NotificationService.notifyMotionEvent(event, isUrgent).catch((err: unknown) => {
         logger.error('Motion notification failed', 'PIPELINE', err);
       });
     }
