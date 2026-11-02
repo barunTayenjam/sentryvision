@@ -71,10 +71,11 @@
 
 | Feature | Description | Performance |
 |---------|-------------|-------------|
-| **Dual-Chain Object Detection** | QAT INT8: CrowdHuman v8s (persons) + COCO QAT (vehicles/animals) | **37–39ms inference** |
-| **Motion ROI Crop-Zoom** | Frigate-style: YOLO runs on motion region only | Cuts inference area ~80% |
-| **Human Verification** | Tiered: YOLO ≥0.90 → Face → MediaPipe pose → score floor | Discards non-human tracks |
-| **Face Recognition** | InsightFace ArcFace 512-dim embeddings, 30s identity cache | Visitor timeline + known faces |
+| **Dual-Chain Object Detection** | QAT INT8: CrowdHuman v8s (persons) + COCO QAT (vehicles/animals) | **~50–130ms inference** (host-measured, CPU) |
+| **Human Verification** | Tiered: YOLO → Face → MediaPipe pose → score floor | Discards non-human tracks |
+| **Face Recognition** | InsightFace ArcFace 512-dim embeddings, 30s identity cache | Visitor timeline + known faces (AI-based) |
+| **Audio Detection** | YAMNet ONNX alert classes (scream, gunshot, explosion, glass break…) | event_type `audio`, opt-in per camera |
+| **License Plate Recognition** | Two-stage (contour detect → PaddleOCR), plates→events JSONB | opt-in per camera (`lpr.enabled`) |
 | **Multi-Object Tracking** | ByteTracker (Kalman filter, lifecycle: started/updated/ended) | Stable IDs across frames |
 | **Motion Gating** | MOG2 background subtraction (pixel threshold, 10-frame warmup) | YOLO fires only on motion |
 

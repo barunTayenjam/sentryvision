@@ -182,7 +182,12 @@ export async function persistDetectionEvent(
             className,
             classId: ev.classId,
             score,
-            bbox: { x: bbox[0] ?? 0, y: bbox[1] ?? 0, width: bbox[2] ?? 0, height: bbox[3] ?? 0 },
+            bbox: { 
+          x: Math.round(bbox[0] ?? 0), 
+          y: Math.round(bbox[1] ?? 0), 
+          width: Math.max(0, Math.round(bbox[2] ?? 0)), 
+          height: Math.max(0, Math.round(bbox[3] ?? 0)) 
+        },
             trackId,
             trackState: ev.trackState,
             trackletLen: ev.trackletLen,
