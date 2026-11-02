@@ -20,6 +20,7 @@ export interface EventsListParams {
   start_date?: string;
   end_date?: string;
   sortBy?: string;
+  jev_urgent?: boolean;
 }
 
 export interface EventsListResult {

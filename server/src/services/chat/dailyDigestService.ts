@@ -10,15 +10,22 @@ export interface DigestPayload {
   url: string;
 }
 
-function istDayRange(): { from: Date; to: Date; label: string } {
-  // IST midnight boundaries for "yesterday".
-  const nowIst = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
-  const y = new Date(nowIst);
-  y.setUTCDate(y.getUTCDate() - 1);
-  const day = y.toISOString().slice(0, 10);
-  const from = new Date(`${day}T00:00:00+05:30`);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function istDayRange(day?: string): { from: Date; to: Date; label: string } {
+  // IST midnight boundaries for "yesterday" (or the requested day).
+  let label: string;
+  if (day && DATE_RE.test(day)) {
+    label = day;
+  } else {
+    const nowIst = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
+    const y = new Date(nowIst);
+    y.setUTCDate(y.getUTCDate() - 1);
+    label = y.toISOString().slice(0, 10);
+  }
+  const from = new Date(`${label}T00:00:00+05:30`);
   const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
-  return { from, to, label: day };
+  return { from, to, label };
 }
 
 /**
@@ -26,8 +33,8 @@ function istDayRange(): { from: Date; to: Date; label: string } {
  * arrived/left, peak hours, threat share, and one scene highlight.
  * Concise but complete — the same six-line shape the user approved.
  */
-export async function buildYesterdayDigest(): Promise<DigestPayload> {
-  const { from, to, label } = istDayRange();
+export async function buildYesterdayDigest(day?: string): Promise<DigestPayload> {
+  const { from, to, label } = istDayRange(day);
   const stats = await collectReportStats({ from, to, camera: null });
   const scenes = await collectReportScenes({ from, to, camera: null });
 
@@ -73,6 +80,14 @@ export async function buildYesterdayDigest(): Promise<DigestPayload> {
     lines.push(`**Threat:** ${threatEvents}/${fmtN(stats.totals.events)} events high/critical (${threatPct}%)`);
   } else {
     lines.push(`**Threat:** nothing above medium`);
+  }
+
+  // JEV urgency share: how many events jev flagged as urgent (fast opinion).
+  if (stats.jevUrgent && stats.jevUrgent.total > 0) {
+    const jevPct = Math.round((stats.jevUrgent.events / stats.jevUrgent.total) * 100);
+    lines.push(
+      `**JEV urgency:** ${stats.jevUrgent.events}/${fmtN(stats.jevUrgent.total)} events flagged urgent (${jevPct}%)`,
+    );
   }
 
   // One highlight — the most recent analyzed scene, else longest track.
@@ -154,11 +169,11 @@ export interface PersistedDigest {
   created_at: string;
 }
 
-/** Build + upsert yesterday's digest into daily_digests. */
-export async function persistDigest(): Promise<PersistedDigest | null> {
+/** Build + upsert a digest for a given day (defaults to yesterday). */
+export async function persistDigest(day?: string): Promise<PersistedDigest | null> {
   try {
-    const digest = await buildYesterdayDigest();
-    const { label } = istDayRange();
+    const digest = await buildYesterdayDigest(day);
+    const { label } = istDayRange(day);
     const statsLabel = digest.body.match(/(\d[\d,]*) events/);
     const eventCount = statsLabel ? parseInt(statsLabel[1].replace(/,/g, ''), 10) : 0;
     const detLabel = digest.body.match(/(\d[\d,]*) detections/);

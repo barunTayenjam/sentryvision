@@ -98,6 +98,12 @@ export interface MotionEvent {
   lightLevel?: number;
   motionArea?: number;
   rawMetadata?: Record<string, unknown>;
+  /** JEV fast urgency assessment (oc/jev-1.13-free). null when no assessment ran. */
+  jev?: {
+    isUrgent: boolean;
+    score: number;
+    level: string;
+  } | null;
 }
 
 export interface EventRelation {

@@ -35,6 +35,8 @@ export interface ListEnhancedFilters {
   min_confidence?: string;
   max_confidence?: string;
   face_status?: string;
+  /** Filter by stored JEV urgency: 'true' | 'false' | 'all'. */
+  jev_urgent?: string;
 }
 
 export interface DetectionEventFilters {

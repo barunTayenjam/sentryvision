@@ -260,6 +260,8 @@ export const eventService = {
     min_confidence?: number;
     confidence?: 'all' | 'high' | 'medium' | 'low';
     faceStatus?: 'all' | 'has_faces' | 'known_faces' | 'unknown_faces' | 'no_faces';
+    /** Filter by stored JEV urgency flag (fast noul assessment). */
+    jev_urgent?: boolean;
   }): Promise<EnhancedEventsResponse> {
     try {
       const params = new URLSearchParams();
@@ -275,6 +277,8 @@ export const eventService = {
         if (options.sortBy) params.append('sortBy', options.sortBy);
         if (options.min_confidence !== undefined)
           params.append('min_confidence', options.min_confidence.toString());
+        if (options.jev_urgent !== undefined)
+          params.append('jev_urgent', options.jev_urgent.toString());
 
         // Map confidence level to min/max confidence (DB stores 0-1 range)
         if (options.confidence && options.confidence !== 'all') {

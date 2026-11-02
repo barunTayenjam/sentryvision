@@ -40,6 +40,7 @@ function getFilterFromParams(params: URLSearchParams): FilterState {
     cameraId: params.get('cameraId') || 'all',
     detectionType: (params.get('detectionType') || 'person') as FilterState['detectionType'],
     quickRange: (params.get('quickRange') || 'all') as FilterState['quickRange'],
+    jevUrgent: (params.get('jev_urgent') || 'all') as FilterState['jevUrgent'],
     dateRange: {
       start: params.get('startDate') ? new Date(params.get('startDate')!) : undefined,
       end: params.get('endDate') ? new Date(params.get('endDate')!) : undefined,
@@ -133,6 +134,10 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
       min_confidence: filters.detectionType === 'person' ? PERSON_CONFIDENCE_FLOOR : undefined,
       start_date: filters.dateRange.start?.toISOString(),
       end_date: filters.dateRange.end?.toISOString(),
+      jev_urgent:
+        filters.jevUrgent !== undefined && filters.jevUrgent !== 'all'
+          ? filters.jevUrgent === 'true'
+          : undefined,
       sortBy,
     });
   const { data: semanticData, isLoading: semanticLoading } = useSemanticEvents(searchQuery || '', {
@@ -244,6 +249,7 @@ const EventsPage = ({ embedded = false }: EventsPageProps) => {
         quickRange: f.quickRange !== 'all' ? f.quickRange : null,
         startDate: f.quickRange === 'all' && f.dateRange.start ? f.dateRange.start.toISOString() : null,
         endDate: f.quickRange === 'all' && f.dateRange.end ? f.dateRange.end.toISOString() : null,
+        jev_urgent: f.jevUrgent !== 'all' ? (f.jevUrgent ?? null) : null,
         page: null,
         eventId: null,
       });

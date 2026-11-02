@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { BaseController } from './BaseController.js';
 import { serviceRegistry } from '../services/serviceRegistry.js';
 import { serviceLogService } from '../services/serviceLogService.js';
-import { inMemoryState, MotionEvent } from '../services/inMemoryStateService.js';
+import { inMemoryState } from '../services/inMemoryStateService.js';
 import { AutomatedCleanupService } from '../services/automatedCleanupService.js';
 import type { Camera } from '../streams/rtspManager.js';
 
@@ -205,22 +205,30 @@ export class SystemController extends BaseController {
         logger.warn('Failed to query storage stats in overview', 'System', err);
       }
 
-      const recentEvents = inMemoryState.getRecentEvents();
+      // Event counts come from PostgreSQL — the in-memory buffer is empty
+      // after a restart, so durable counters must not read from it.
+      const { AppDataSource: db } = await import('../database.js');
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const weekAgoStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+      const dbRows = await db.query(
+        `SELECT COUNT(*)::int AS total_events,
+                COUNT(*) FILTER (WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz) AS today_events
+         FROM events
+         WHERE timestamp >= $3::timestamptz`,
+        [todayStart, new Date(todayStart.getTime() + 24 * 60 * 60 * 1000), weekAgoStart],
+      );
+      const totalEvents = parseInt(String(dbRows[0]?.total_events)) || 0;
+      const todayEvents = parseInt(String(dbRows[0]?.today_events)) || 0;
+
       const overview = {
         status: 'healthy',
         uptime: process.uptime(),
         totalCameras: cameras.length,
         onlineCameras: cameras.filter((c: Camera) => c.isActive).length,
-        totalEvents: recentEvents.length,
-        todayEvents: recentEvents.filter((e: MotionEvent) => {
-          const eventDate = new Date(e.timestamp);
-          const today = new Date();
-          return (
-            eventDate.getDate() === today.getDate() &&
-            eventDate.getMonth() === today.getMonth() &&
-            eventDate.getFullYear() === today.getFullYear()
-          );
-        }).length,
+        totalEvents,
+        todayEvents,
         storageUsed,
         storageTotal,
       };
@@ -262,7 +270,21 @@ export class SystemController extends BaseController {
       }
       if (!dbHealthy) issues.push('Database connectivity issue');
 
-      const recentEvents = inMemoryState.getRecentEvents();
+      // Event counts come from PostgreSQL — the in-memory buffer is empty
+      // after a restart, so durable counters must not read from it.
+      const { AppDataSource: db } = await import('../database.js');
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const weekAgoStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const dbRows = await db.query(
+        `SELECT COUNT(*)::int AS total_events,
+                COUNT(*) FILTER (WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz) AS today_events
+         FROM events
+         WHERE timestamp >= $3::timestamptz`,
+        [todayStart, new Date(todayStart.getTime() + 24 * 60 * 60 * 1000), weekAgoStart],
+      );
+      const totalEvents = parseInt(String(dbRows[0]?.total_events)) || 0;
+      const todayEvents = parseInt(String(dbRows[0]?.today_events)) || 0;
 
       const cpus = os.cpus();
       const loadAvg = os.loadavg();
@@ -381,16 +403,8 @@ export class SystemController extends BaseController {
           ...(disk ? { disk } : {}),
           ...(relationsQueue ? { relationsQueue } : {}),
           events: {
-            recent: recentEvents.length,
-            today: recentEvents.filter((e) => {
-              const eventDate = new Date(e.timestamp);
-              const today = new Date();
-              return (
-                eventDate.getDate() === today.getDate() &&
-                eventDate.getMonth() === today.getMonth() &&
-                eventDate.getFullYear() === today.getFullYear()
-              );
-            }).length,
+            recent: totalEvents,
+            today: todayEvents,
           },
         },
       });

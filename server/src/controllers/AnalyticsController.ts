@@ -1,7 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { Request, Response } from 'express';
 import { BaseController } from './BaseController.js';
-import { inMemoryState } from '../services/inMemoryStateService.js';
 
 export class AnalyticsController extends BaseController {
   async getStorageStats(req: Request, res: Response): Promise<void> {
@@ -62,32 +61,32 @@ export class AnalyticsController extends BaseController {
     }
   }
 
-  getWeekly(req: Request, res: Response): void {
+  async getWeekly(req: Request, res: Response): Promise<void> {
     try {
+      const { AppDataSource } = await import('../database.js');
       const today = new Date();
-      const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const recentEvents = inMemoryState.getRecentEvents();
-      const weeklyEvents = recentEvents.filter((event) => {
-        const eventDate = new Date(event.timestamp);
-        return eventDate >= oneWeekAgo && eventDate <= today;
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const weekAgoStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+      const rows: Array<{ d: string; count: number }> = await AppDataSource.query(
+        `SELECT TO_CHAR(DATE(timestamp), 'YYYY-MM-DD') AS d, COUNT(*)::int AS count
+         FROM events
+         WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz
+         GROUP BY DATE(timestamp)`,
+        [weekAgoStart, new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)],
+      );
+      const counts = new Map(rows.map((r) => [r.d, parseInt(String(r.count))]));
+
+      const dailyBreakdown = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date(weekAgoStart.getTime() + i * 24 * 60 * 60 * 1000);
+        const d = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        return { date: d, count: counts.get(d) ?? 0 };
       });
 
       this.ok(res, {
         weeklyData: {
-          totalEvents: weeklyEvents.length,
-          dailyBreakdown: Array(7)
-            .fill(null)
-            .map((_, dayIndex) => {
-              const date = new Date(today.getTime() - dayIndex * 24 * 60 * 60 * 1000);
-              const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-              const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-              const dayEvents = weeklyEvents.filter((event) => {
-                const eventDate = new Date(event.timestamp);
-                return eventDate >= dayStart && eventDate < dayEnd;
-              });
-              return { date: dayStart.toISOString().split('T')[0], count: dayEvents.length };
-            })
-            .reverse(),
+          totalEvents: dailyBreakdown.reduce((s, day) => s + day.count, 0),
+          dailyBreakdown,
         },
       });
     } catch (error) {
@@ -95,33 +94,37 @@ export class AnalyticsController extends BaseController {
     }
   }
 
-  getMonthly(req: Request, res: Response): void {
+  async getMonthly(req: Request, res: Response): Promise<void> {
     try {
+      const { AppDataSource } = await import('../database.js');
       const today = new Date();
-      const oneMonthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
-      const recentEvents = inMemoryState.getRecentEvents();
-      const monthlyEvents = recentEvents.filter((event) => {
-        const eventDate = new Date(event.timestamp);
-        return eventDate >= oneMonthAgo && eventDate <= today;
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const monthAgoStart = new Date(todayStart.getTime() - 27 * 24 * 60 * 60 * 1000);
+
+      const rows: Array<{ d: string; count: number }> = await AppDataSource.query(
+        `SELECT TO_CHAR(DATE(timestamp), 'YYYY-MM-DD') AS d, COUNT(*)::int AS count
+         FROM events
+         WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz
+         GROUP BY DATE(timestamp)`,
+        [monthAgoStart, new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)],
+      );
+      const counts = new Map(rows.map((r) => [r.d, parseInt(String(r.count))]));
+
+      const daily = Array.from({ length: 28 }, (_, i) => {
+        const date = new Date(monthAgoStart.getTime() + i * 24 * 60 * 60 * 1000);
+        const d = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        return counts.get(d) ?? 0;
       });
+
+      const weeklyBreakdown = Array.from({ length: 4 }, (_, weekIndex) => ({
+        week: `Week ${weekIndex + 1}`,
+        count: daily.slice(weekIndex * 7, weekIndex * 7 + 7).reduce((s, c) => s + c, 0),
+      }));
 
       this.ok(res, {
         monthlyData: {
-          totalEvents: monthlyEvents.length,
-          weeklyBreakdown: Array(4)
-            .fill(null)
-            .map((_, weekIndex) => {
-              const weekStart = new Date(
-                today.getTime() - (weekIndex + 1) * 7 * 24 * 60 * 60 * 1000,
-              );
-              const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-              const weekEvents = monthlyEvents.filter((event: any) => {
-                const eventDate = new Date(event.timestamp);
-                return eventDate >= weekStart && eventDate < weekEnd;
-              });
-              return { week: `Week ${4 - weekIndex}`, count: weekEvents.length };
-            })
-            .reverse(),
+          totalEvents: daily.reduce((s, c) => s + c, 0),
+          weeklyBreakdown,
         },
       });
     } catch (error) {

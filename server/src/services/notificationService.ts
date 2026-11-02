@@ -185,7 +185,11 @@ export class NotificationService {
     }
   }
 
-  static async shouldNotify(userId: string, eventType: string): Promise<boolean> {
+  static async shouldNotify(
+    userId: string,
+    eventType: string,
+    isUrgent = false,
+  ): Promise<boolean> {
     try {
       const preferencesRepository = AppDataSource.getRepository(NotificationPreferences);
       const prefs = await preferencesRepository.findOne({ where: { userId } });
@@ -201,6 +205,15 @@ export class NotificationService {
       if (eventType === 'motion' && !prefs.motionEnabled) return false;
       if (eventType === 'face' && !prefs.faceEnabled) return false;
       if (eventType === 'object' && !prefs.objectEnabled) return false;
+
+      // JEV urgent assessment overrides quiet hours (break-in at 2am should still alert).
+      if (isUrgent) {
+        logger.info(
+          `Urgent event override for user ${userId}, bypassing quiet hours`,
+          'NotificationService',
+        );
+        return true;
+      }
 
       if (prefs.quietHoursEnabled) {
         const now = new Date();
@@ -291,7 +304,7 @@ export class NotificationService {
     );
   }
 
-  static async notifyMotionEvent(event: Event): Promise<void> {
+  static async notifyMotionEvent(event: Event, isUrgent = false): Promise<void> {
     const cameraName = event.camera_id
       ? this.cameraNames.get(event.camera_id) || event.camera_id
       : 'Unknown camera';
@@ -300,8 +313,11 @@ export class NotificationService {
       minute: '2-digit',
     });
 
+    const threat = (event.threat_assessment as { level?: string } | null) ?? null;
+    const urgentTag = isUrgent || threat?.level === 'critical' ? '🚨 ' : '';
+
     const payload: NotificationPayload = {
-      title: 'Motion Detected',
+      title: `${urgentTag}Motion Detected`,
       body: `Motion detected at ${cameraName} (${timeStr})`,
       icon: '/icon-192.png',
       image: event.file_path ? `/api/events/image/${event.file_path.split('/').pop()}` : undefined,
@@ -312,13 +328,14 @@ export class NotificationService {
         cameraId: event.camera_id,
         timestamp: event.timestamp,
         type: 'motion',
+        urgent: isUrgent,
       },
     };
 
-    await this.sendNotificationToAllUsers(payload, 'motion', event.id);
+    await this.sendNotificationToAllUsers(payload, 'motion', event.id, isUrgent);
   }
 
-  static async notifyUnknownFace(event: Event): Promise<void> {
+  static async notifyUnknownFace(event: Event, isUrgent = false): Promise<void> {
     const cameraName = event.camera_id
       ? this.cameraNames.get(event.camera_id) || event.camera_id
       : 'Unknown camera';
@@ -327,8 +344,11 @@ export class NotificationService {
       minute: '2-digit',
     });
 
+    const threat = (event.threat_assessment as { level?: string } | null) ?? null;
+    const urgentTag = isUrgent || threat?.level === 'critical' ? '🚨 ' : '';
+
     const payload: NotificationPayload = {
-      title: 'Unknown Face Detected',
+      title: `${urgentTag}Unknown Face Detected`,
       body: `Unknown person detected at ${cameraName} (${timeStr})`,
       icon: '/icon-192.png',
       image: event.file_path ? `/api/events/image/${event.file_path.split('/').pop()}` : undefined,
@@ -340,13 +360,14 @@ export class NotificationService {
         timestamp: event.timestamp,
         type: 'face',
         status: 'unknown',
+        urgent: isUrgent,
       },
     };
 
-    await this.sendNotificationToAllUsers(payload, 'face', event.id);
+    await this.sendNotificationToAllUsers(payload, 'face', event.id, isUrgent);
   }
 
-  static async notifyObjectDetected(event: Event, objects: string[]): Promise<void> {
+  static async notifyObjectDetected(event: Event, objects: string[], isUrgent = false): Promise<void> {
     const cameraName = event.camera_id
       ? this.cameraNames.get(event.camera_id) || event.camera_id
       : 'Unknown camera';
@@ -355,8 +376,11 @@ export class NotificationService {
       minute: '2-digit',
     });
 
+    const threat = (event.threat_assessment as { level?: string } | null) ?? null;
+    const urgentTag = isUrgent || threat?.level === 'critical' ? '🚨 ' : '';
+
     const payload: NotificationPayload = {
-      title: `${objects[0]?.charAt(0).toUpperCase() + objects[0]?.slice(1)} Detected`,
+      title: `${urgentTag}${objects[0]?.charAt(0).toUpperCase() + objects[0]?.slice(1)} Detected`,
       body: `${objects.join(', ')} detected at ${cameraName} (${timeStr})`,
       icon: '/icon-192.png',
       image: event.file_path ? `/api/events/image/${event.file_path.split('/').pop()}` : undefined,
@@ -368,10 +392,11 @@ export class NotificationService {
         timestamp: event.timestamp,
         type: 'object',
         objects,
+        urgent: isUrgent,
       },
     };
 
-    await this.sendNotificationToAllUsers(payload, 'object', event.id);
+    await this.sendNotificationToAllUsers(payload, 'object', event.id, isUrgent);
   }
 
   static async notifySystemAlert(title: string, message: string): Promise<void> {
@@ -394,6 +419,7 @@ export class NotificationService {
     payload: NotificationPayload,
     eventType: string,
     eventId?: string,
+    isUrgent = false,
   ): Promise<void> {
     const { User } = await import('../models/index.js');
     const userRepository = AppDataSource.getRepository(User);
@@ -401,7 +427,7 @@ export class NotificationService {
     const users = await userRepository.find();
 
     for (const user of users) {
-      const shouldNotify = await this.shouldNotify(user.id, eventType);
+      const shouldNotify = await this.shouldNotify(user.id, eventType, isUrgent);
       if (shouldNotify) {
         await this.sendNotificationToUser(user.id, payload, eventType, eventId);
       } else {

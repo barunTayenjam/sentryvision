@@ -946,6 +946,30 @@ export const EventDetailPanel: React.FC<EventDetailPanelProps> = ({
                     </div>
                   )}
 
+                  {/* JEV urgency — fast second opinion alongside the vision LLM */}
+                  {event?.jev && (
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={cn(
+                          'p-[1px] rounded-full',
+                          event.jev.isUrgent ? 'bg-red-500/30' : 'bg-white/[0.08]',
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            'rounded-full px-2.5 py-1 text-xs font-medium',
+                            event.jev.isUrgent
+                              ? 'bg-red-500/15 text-red-400'
+                              : 'bg-white/[0.06] text-white/60',
+                          )}
+                        >
+                          JEV {event.jev.isUrgent ? 'URGENT' : event.jev.level} ·{' '}
+                          {event.jev.score.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Detected Entities */}
                   {analysis.detectedEntities && (
                     <div className="space-y-3">

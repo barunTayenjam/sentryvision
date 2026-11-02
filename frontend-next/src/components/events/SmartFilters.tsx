@@ -32,6 +32,7 @@ export interface FilterState {
   detectionType: 'all' | 'motion' | 'person' | 'face' | 'vehicle';
   dateRange: { start: Date | undefined; end: Date | undefined };
   quickRange: 'all' | 'today' | 'yesterday' | 'last7days' | 'last30days';
+  jevUrgent?: 'all' | 'true' | 'false';
 }
 
 interface SmartFiltersProps {
@@ -121,6 +122,7 @@ export const SmartFilters: React.FC<SmartFiltersProps> = ({
     filters.detectionType !== 'all',
     filters.quickRange !== 'all',
     filters.dateRange.start !== undefined,
+    filters.jevUrgent !== undefined && filters.jevUrgent !== 'all',
   ].filter(Boolean).length;
 
   const updateFilter = useCallback(
@@ -146,6 +148,7 @@ export const SmartFilters: React.FC<SmartFiltersProps> = ({
       detectionType: 'all',
       dateRange: { start: undefined, end: undefined },
       quickRange: 'all',
+      jevUrgent: 'all',
     };
     onFiltersChange?.(cleared);
   }, [onFiltersChange]);
@@ -281,6 +284,26 @@ export const SmartFilters: React.FC<SmartFiltersProps> = ({
               </SelectItem>
               <SelectItem value="vehicle" className="rounded-md text-xs">
                 Vehicle
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filters.jevUrgent ?? 'all'}
+            onValueChange={(val: string) => updateFilter('jevUrgent', val as FilterState['jevUrgent'])}
+          >
+            <SelectTrigger className="w-full md:w-32 h-9 rounded-md bg-white/[0.04] border-white/[0.10] text-xs">
+              <SelectValue placeholder="JEV" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-white/[0.10] rounded-lg">
+              <SelectItem value="all" className="rounded-md text-xs">
+                All JEV
+              </SelectItem>
+              <SelectItem value="true" className="rounded-md text-xs">
+                Urgent
+              </SelectItem>
+              <SelectItem value="false" className="rounded-md text-xs">
+                Not Urgent
               </SelectItem>
             </SelectContent>
           </Select>

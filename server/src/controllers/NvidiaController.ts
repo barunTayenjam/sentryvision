@@ -12,6 +12,7 @@ import { getEffectiveModel, getModelFallbackChain } from '../services/nvidia/nvi
 import { aiResultNormalizer } from '../services/nvidia/aiResultNormalizer.js';
 import { EventMetadataWriter } from '../services/nvidia/eventMetadataWriter.js';
 import { serviceRegistry } from '../services/serviceRegistry.js';
+import { assessThreat, buildEventState, mapToThreatAssessment } from '../services/jevThreatService.js';
 
 function safeJson(val: unknown): unknown[] {
   if (!val) return [];
@@ -365,6 +366,74 @@ export class NvidiaController extends BaseController {
       });
     } catch (error: unknown) {
       this.serverError(res, error, 'nvidia health');
+    }
+  }
+
+  /**
+   * Assess urgency/threat via jev model from raw state text or event data.
+   * POST /api/nvidia/assess-threat { state } or { eventId }
+   */
+  async assessThreatHandler(req: Request, res: Response): Promise<void> {
+    try {
+      const { state, eventId } = req.body;
+
+      if (!state && !eventId) {
+        this.badRequest(res, 'Either "state" (text) or "eventId" is required');
+        return;
+      }
+
+      if (eventId) {
+        const { AppDataSource } = await import('../database.js');
+        const { Event } = await import('../models/index.js');
+        const event = await AppDataSource.getRepository(Event).findOne({
+          where: { id: eventId },
+        });
+        if (!event) {
+          this.notFound(res, 'Event not found');
+          return;
+        }
+
+        const objectDetections = safeJson(event.object_detections as unknown);
+        const persons = objectDetections.filter(
+          (d: any) => typeof d === 'object' && d?.class === 'person',
+        ).length;
+        const faces = safeJson(event.face_detections as unknown);
+
+        const builtState = buildEventState({
+          cameraId: event.camera_id ?? undefined,
+          eventType: event.event_type ?? undefined,
+          personsDetected: persons,
+          faceDetected: faces.length > 0,
+          timestamp: event.timestamp.toString(),
+        });
+
+        const result = await assessThreat(builtState);
+        const threatJson = mapToThreatAssessment(result);
+
+        event.threat_assessment = {
+          ...(event.threat_assessment as Record<string, unknown> | null),
+          ...threatJson,
+        };
+        await AppDataSource.getRepository(Event).save(event);
+
+        res.json({
+          success: true,
+          eventId,
+          assessment: result,
+          threatAssessment: threatJson,
+          stateUsed: builtState,
+        });
+        return;
+      }
+
+      const result = await assessThreat(state);
+      res.json({
+        success: true,
+        assessment: result,
+        threatAssessment: mapToThreatAssessment(result),
+      });
+    } catch (error: unknown) {
+      this.serverError(res, error, 'assess-threat');
     }
   }
 

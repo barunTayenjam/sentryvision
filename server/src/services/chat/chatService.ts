@@ -271,9 +271,9 @@ export async function runClassifiedChat(
     let content = linkTable;
     if (visitRows.length > 0 && tables[0]) {
       try {
-        content = await synthesizeSemanticAnswer(parsed.data.query, tables[0]);
+        content = await synthesizeSemanticAnswer(trimmed, tables[0]);
       } catch (err) {
-        logger.warn('person_visits semantic answer synthesis failed; using link table', 'Chat', err);
+        logger.warn('person_visits answer synthesis failed; using link table', 'Chat', err);
       }
     }
     return {

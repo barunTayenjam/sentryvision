@@ -21,6 +21,8 @@ export interface ReportStats {
     last: Date;
   }>;
   threats: Array<{ level: string; events: number }>;
+  /** JEV fast-assessment urgency share within the window. */
+  jevUrgent: { total: number; events: number };
   cameras: string[];
 }
 
@@ -119,6 +121,17 @@ export async function collectReportStats(w: Window): Promise<ReportStats> {
     values as unknown[],
   );
 
+  const jevRows = await AppDataSource.query(
+    `SELECT COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE e.threat_assessment->>'is_urgent' = 'true') AS urgent
+     FROM event_detections ed
+     JOIN events e ON e.id = ed.event_id
+     WHERE ed.timestamp >= $1 AND ed.timestamp < $2 AND ed.confidence >= $3
+       AND e.threat_assessment->>'noul_score' IS NOT NULL
+     ${cameraCond}`,
+    values,
+  );
+
   const totals = totalsRows[0] as { events: string; detections: string };
   const humans = humansRows[0] as { detections: string; unique_humans: string; verified: string };
   const classifyVehicle = (r: Record<string, unknown>) => ({
@@ -155,6 +168,10 @@ export async function collectReportStats(w: Window): Promise<ReportStats> {
       level: r.level as string,
       events: Number(r.events),
     })),
+    jevUrgent: {
+      total: Number((jevRows[0] as Record<string, unknown>).total),
+      events: Number((jevRows[0] as Record<string, unknown>).urgent),
+    },
     cameras: (cameraRows as Array<Record<string, unknown>>).map((r) => r.camera as string),
   };
 }

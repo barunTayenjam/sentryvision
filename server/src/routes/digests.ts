@@ -51,9 +51,9 @@ router.get(
 );
 
 // Manual regeneration (admin cron catch-up)
-router.post('/generate', optionalAuth, async (_req: Request, res: Response) => {
+const generateHandler = async (req: Request, res: Response) => {
   try {
-    const stored = await persistDigest();
+    const stored = await persistDigest(req.params.date);
     if (!stored) {
       res.status(500).json({ success: false, error: 'Digest generation failed' });
       return;
@@ -63,6 +63,8 @@ router.post('/generate', optionalAuth, async (_req: Request, res: Response) => {
     logger.error('Failed to generate digest', 'DigestRoutes', error);
     res.status(500).json({ success: false, error: 'Failed to generate digest' });
   }
-});
+};
+router.post('/generate', optionalAuth, generateHandler);
+router.post('/generate/:date', optionalAuth, generateHandler);
 
 export default router;

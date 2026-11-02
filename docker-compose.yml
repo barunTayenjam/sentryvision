@@ -65,6 +65,8 @@ services:
       - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
       - OPENCV_SERVICE_URL=http://opencv:8084
       - OPENCV_API_TOKEN=${OPENCV_API_TOKEN:-}
+      - JEV_MODEL=${JEV_MODEL}
+      - JEV_FALLBACK_MODELS=${JEV_FALLBACK_MODELS:-}
       - RELATIONS_SERVICE_URL=http://relations:8085
       - RELATIONS_API_TOKEN=${OPENCV_API_TOKEN:-}
       - DETECTIONS_DIR=/app/data/detections
@@ -159,6 +161,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - DETECTIONS_DIR=/app/data/detections
       - OPENCV_API_TOKEN=${OPENCV_API_TOKEN:-}
+      - JEV_MODEL=${JEV_MODEL}
+      - JEV_FALLBACK_MODELS=${JEV_FALLBACK_MODELS:-}
       - PERSON_MIN_TRACK_HITS=${PERSON_MIN_TRACK_HITS:-3}
       - PERSON_MIN_CONFIDENCE=${PERSON_MIN_CONFIDENCE:-0.55}
       - HUMAN_VERIFIER_SCORE=${HUMAN_VERIFIER_SCORE:-0.35}
@@ -236,6 +240,8 @@ services:
       - TZ=Asia/Kolkata
       - DETECTIONS_DIR=/app/data/detections
       - RELATIONS_API_TOKEN=${OPENCV_API_TOKEN:-}
+      - JEV_MODEL=${JEV_MODEL}
+      - JEV_FALLBACK_MODELS=${JEV_FALLBACK_MODELS:-}
     volumes:
       - ./relations-service:/app
       - ./data/detections:/app/data/detections

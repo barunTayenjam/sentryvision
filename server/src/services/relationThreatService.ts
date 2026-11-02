@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { AppDataSource } from '../database.js';
 import { chatCompletion } from './nvidia/nvidiaClient.js';
+import { assessThreat, buildEventState } from './jevThreatService.js';
 import type { EventRelation } from '../types/event.js';
 
 export interface RelationThreat {
@@ -35,6 +36,7 @@ interface ThreatEventRow {
   object_detections: unknown;
   motion_stats: unknown;
   relations: unknown;
+  threat_assessment?: { noul_score?: number } | null;
 }
 
 interface RelationBoxDoc {
@@ -190,7 +192,8 @@ export class RelationThreatService {
 
     const rows = (await AppDataSource.query(
       `SELECT id, camera_id, timestamp, event_type, persons_detected, faces_detected,
-              known_faces_count, unknown_faces_count, object_detections, motion_stats, relations
+              known_faces_count, unknown_faces_count, object_detections, motion_stats, relations,
+              threat_assessment
        FROM events WHERE id = $1 LIMIT 1`,
       [eventId],
     )) as ThreatEventRow[];
@@ -239,6 +242,62 @@ export class RelationThreatService {
     imgW?: number,
     imgH?: number,
   ): Promise<RelationThreatResponse> {
+    // JEV pre-filter: low-urgency events skip the expensive vision-LLM call.
+    // JEV is ~400ms vs 2-5s for chatCompletion. Reads the score the detection
+    // gate already stored; calls jev fresh only when the race left it missing.
+    if (process.env.JEV_PREFILTER !== 'false') {
+      try {
+        let noulScore: number | null = null;
+        const stored = event as unknown as {
+          threat_assessment?: { noul_score?: number } | null;
+        };
+        if (
+          stored.threat_assessment &&
+          typeof stored.threat_assessment.noul_score === 'number'
+        ) {
+          noulScore = stored.threat_assessment.noul_score;
+        }
+        if (noulScore === null) {
+          const jev = await assessThreat(
+            buildEventState({
+              cameraId: event.camera_id ?? undefined,
+              eventType: event.event_type,
+              personsDetected: event.persons_detected,
+              faceDetected: event.unknown_faces_count > 0,
+              timestamp: new Date(event.timestamp).toISOString(),
+            }),
+          );
+          noulScore = jev.threatScore;
+        }
+        if (noulScore < Number(process.env.JEV_SUPPRESS_THRESHOLD || '0.3')) {
+          const threat: RelationThreat = {
+            level: 'low',
+            confidence: Math.round(noulScore * 100),
+            reasoning: `JEV pre-filter scored urgency ${noulScore.toFixed(2)} — below relation-threat threshold, skipped LLM assessment.`,
+            factors: [`jev_score:${noulScore.toFixed(2)}`],
+            recommendedActions: [],
+            model: 'jev-prefilter',
+            assessedAt: new Date().toISOString(),
+          };
+          await AppDataSource.query(
+            `UPDATE events SET relations = jsonb_set(relations, '{threat}', $1::jsonb, true)
+             WHERE id = $2 AND jsonb_typeof(relations) = 'object'`,
+            [JSON.stringify(threat), eventId],
+          );
+          logger.info(
+            `RelationThreat: event ${eventId} jev pre-filter low (${noulScore.toFixed(2)}) — LLM skipped`,
+            'RelationThreat',
+          );
+          return { eventId, source: 'computed', threat };
+        }
+      } catch (jevErr) {
+        logger.warn(
+          `RelationThreat: jev pre-filter failed, proceeding with LLM: ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`,
+          'RelationThreat',
+        );
+      }
+    }
+
     const prompt = buildPrompt(event, relations, boxes, imgW, imgH);
     const raw = await chatCompletion(
       'You are a home-security analyst. You assess camera events using ONLY the grounded facts provided — never invent objects or people. Respond with strict JSON, no markdown.',

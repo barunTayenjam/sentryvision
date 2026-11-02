@@ -80,6 +80,14 @@ export class MqttService {
     );
   }
 
+  /** Per-camera jev urgency state (retained, HA binary_sensor compatible). */
+  publishJevUrgent(cameraId: string, urgent: boolean): void {
+    this.publishRetained(
+      `${this.prefix}/${safeTopicPart(cameraId)}/jev_urgent`,
+      urgent ? 'ON' : 'OFF',
+    );
+  }
+
   /** Per-camera stream health state (retained). */
   publishCameraStatus(cameraId: string, status: 'online' | 'offline' | 'warning'): void {
     this.publishRetained(`${this.prefix}/${safeTopicPart(cameraId)}/status`, status);
