@@ -5,6 +5,8 @@ import { chatLlm, extractJsonObject } from './chatLlm.js';
 import {
   anomalies,
   cameraActivity,
+  currentOccupancy,
+  currentOccupancyParamsSchema,
   eventCorrelation,
   humanCounts,
   humanCountsParamsSchema,
@@ -55,8 +57,13 @@ Tools:
    params: { "query": string, "camera": string|null, "limit": int (1-10, default 5), "from": "YYYY-MM-DD|null", "to": "YYYY-MM-DD|null" }
     If the question names a time ("last night", "yesterday", "on October 10"), pass from/to ISO dates; otherwise omit them (whole archive).
 
-8. tool="person_visits" — question asks WHO came or went / visited / arrived / left, or "did anyone come while I was out" (people only — use vehicle_timeline for vehicles). Also use for "how long did the person stay".
-   params: { "range": same as above, "camera": string|null }
+8. tool="person_visits" — question asks WHO came or went / visited / arrived / left, or "when did [person/name] leave/return", "did [person/name] arrive", "did anyone come while I was out" (people only — use vehicle_timeline for vehicles). Also use for "how long did the person stay".
+   params: { "range": same as above, "camera": string|null, "who": string|null }
+   who: name or identity of the person if the question specifies one (e.g. "dad", "barun", "mom", "john", etc.), else null.
+
+10. tool="current_occupancy" — question asks how many vehicles, cars, or people are currently present, parked, or visible right now / at this moment / currently (e.g. "how many vehicles are there currently", "how many cars right now", "is anyone there right now").
+   params: { "objectClass": "vehicle"|"car"|"motorcycle"|"bicycle"|"truck"|"bus"|"person"|"all", "camera": string|null }
+   objectClass: one of vehicle/car/motorcycle/bicycle/truck/bus/person/all; defaults to "vehicle" when unspecified.
 
 9. tool="fallback" — any question none of the above fits (e.g. asking for advice, general info, or data the system cannot provide). params: {}.
 
@@ -93,6 +100,7 @@ const classificationSchema = z.object({
     'anomalies',
     'semantic_search',
     'person_visits',
+    'current_occupancy',
     'fallback',
   ]),
   params: z.record(z.unknown()),
@@ -244,22 +252,55 @@ export async function runClassifiedChat(
     };
   }
 
+  // current_occupancy — real-time snapshot, no date-range resolution.
+  if (tool === 'current_occupancy') {
+    const parsed = currentOccupancyParamsSchema.safeParse(classified.params);
+    if (!parsed.success) throw new ChatError('Missing/invalid occupancy params', 422);
+    const objectClass = parsed.data.objectClass;
+    const { tables, evidence, count, classLabel } = await currentOccupancy({
+      objectClass,
+      camera: parsed.data.camera ?? null,
+    });
+    const rows = tables[0].rows;
+    const lines: string[] = [];
+    if (count === 0) {
+      lines.push(`No ${classLabel} currently seen (no active detections in the last 15 minutes).`);
+    } else {
+      const byCam = new Map<string, number>();
+      for (const r of rows) byCam.set(String(r[0]), (byCam.get(String(r[0])) ?? 0) + 1);
+      const camSummary = [...byCam.entries()].map(([c, n]) => `${n} on ${c}`).join(', ');
+      lines.push(`## ${count} ${classLabel} currently active`);
+      lines.push('');
+      lines.push(`**${count}** ${classLabel} seen in the last 15 minutes: ${camSummary}.`);
+    }
+    return {
+      tool,
+      params: { objectClass, camera: parsed.data.camera ?? null },
+      answer: { type: 'markdown', content: lines.join('\n') },
+      tables,
+      evidence: { ...evidence, window: 'last 15 minutes' },
+    };
+  }
+
   const range = resolveParamsRange(classified.params);
 
   if (tool === 'person_visits') {
     const parsed = personVisitsParamsSchema.safeParse(classified.params);
     if (!parsed.success) throw new ChatError('Missing/invalid person visit params', 422);
+    const who = parsed.data.who ?? undefined;
     const { tables, evidence, images } = await personVisits({
       camera: parsed.data.camera ?? null,
       from: range.from,
       to: range.to,
+      who,
     });
     const visitRows = tables[0].rows;
+    const visitWho = who ? ` for ${who}` : '';
     const lines: string[] = [];
     if (visitRows.length === 0) {
-      lines.push(`No person visits in the window (${range.label}).`);
+      lines.push(`No person visits${visitWho} in the window (${range.label}).`);
     } else {
-      lines.push(`## ${visitRows.length} person visit${visitRows.length === 1 ? '' : 's'} (${range.label})`);
+      lines.push(`## ${visitRows.length} person visit${visitRows.length === 1 ? '' : 's'}${visitWho} (${range.label})`);
       lines.push('');
       for (const r of visitRows) {
         lines.push(`- ${r[5]} — arrived **${r[2]}**, last seen ${r[3]} on ${r[0]} (${r[4]})`);
@@ -278,7 +319,7 @@ export async function runClassifiedChat(
     }
     return {
       tool,
-      params: { camera: parsed.data.camera ?? null, range: range.label },
+      params: { camera: parsed.data.camera ?? null, range: range.label, who: who ?? null },
       answer: { type: 'markdown', content },
       tables,
       evidence: { ...evidence, window: range.label },

@@ -59,6 +59,21 @@ def test_no_evidence_above_the_floor_is_kept_for_the_persistence_gate(verifier):
     assert verdict["face_detected"] is False
 
 
+def test_small_distant_person_at_configured_floor_is_kept(monkeypatch):
+    """Regression (2026-11-02): size gates raised the effective floor to
+    0.70/0.85 by ROI size, discarding most distant persons the persistence
+    gate downstream exists to judge. Small ROIs must verify at the configured
+    floor — nothing higher."""
+    monkeypatch.setenv("HUMAN_VERIFIER_ENABLED", "1")
+    monkeypatch.setenv("HUMAN_VERIFIER_SCORE", "0.35")
+    monkeypatch.setenv("HUMAN_VERIFIER_NIGHT_SCORE", "0.35")
+    hv = HumanVerifier()
+    small_roi = np.full((39, 55, 3), 90, dtype=np.uint8)
+    verdict = hv.verify_detailed(small_roi, yolo_score=0.40)
+    assert verdict["verified"] is True
+    assert verdict["tier"] == "score_floor"
+
+
 def test_verdict_shape_is_stable(verifier):
     """Node persists these fields into human_verifications."""
     verdict = verifier.verify_detailed(flat_roi(), yolo_score=0.57)
@@ -96,20 +111,11 @@ def test_warns_on_missing_mediapipe(monkeypatch):
     from person_verifier import HumanVerifier
     import numpy as np
     verifier = HumanVerifier()
-    # Monkeypatch the pts property to fail on import
-    original_pts = verifier.pts.fget
-    def failing_pts(self):
-        import mediapipe as mp
-        raise ImportError("mediapipe import deliberately failed for test")
-    # We can't easily monkeypatch a property getter this way,
-    # so instead test that the class logs on import failure
-    # by checking that the class has the warning logic in place.
-    # The warning should be in the except block of pts and face_analyzer.
     # Verify the source code contains the warning strings.
     import inspect
     from person_verifier import HumanVerifier as HV
     source = inspect.getsource(HV)
-    assert "MEDIAPIPE POSSIBLY UNAVAILABLE" in source or "MEDIAPIPE POSSIBLY UNAVAILABLE" in source, (
+    assert "MEDIAPIPE POSE UNAVAILABLE" in source, (
         "Source code must contain a loud warning when mediapipe import fails"
     )
     assert "UNIFACE FACE ANALYZER UNAVAILABLE" in source, (

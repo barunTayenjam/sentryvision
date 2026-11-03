@@ -283,10 +283,12 @@ class ArcFaceRecognizer:
         for RetinaFace (det_size=640).
         """
         if self._model_loaded and self._app is not None:
-            # Quality gate: tiny crops (<64px) produce garbage embeddings.
-            # Caller should use appearance-based ReID for these instead.
+            # 20px floor: below this the crop is mostly noise. Above it,
+            # upscaling to the 112x112 training size recovers surveillance
+            # crops (37x45px is typical at distance) — the old 48px gate
+            # rejected nearly every camera face before the upscale ran.
             h, w = face_image.shape[:2]
-            if h < 48 or w < 48:
+            if h < 20 or w < 20:
                 return None
 
             # Upscale small faces so the recognizer sees detail —
@@ -573,7 +575,7 @@ class ArcFaceRecognizer:
                         continue
                     for face in face_detections:
                         x, y, w, h = face['x'], face['y'], face['width'], face['height']
-                        if w < 50 or h < 50:
+                        if w < 20 or h < 20:
                             continue
                         face_roi = image[y:y + h, x:x + w]
                         embedding = self.extract_face_embedding(face_roi)

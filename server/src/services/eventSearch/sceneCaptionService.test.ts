@@ -22,7 +22,6 @@ const baseEvent = {
     { subject: 'person', predicate: 'near', object: 'car', score: 0.8, subjectIndex: 0, objectIndex: 2 },
   ] as Array<{ subject: string; predicate: string; object: string; score: number }>,
 };
-
 describe('buildCaption', () => {
   it('describes the core event: type, camera, time of day', () => {
     const c = buildCaption(baseEvent);
@@ -55,6 +54,29 @@ describe('buildCaption', () => {
 
     const unknown = buildCaption({ ...baseEvent, known_faces_count: 0, unknown_faces_count: 2 });
     expect(unknown).toContain('2 unknown people');
+  });
+
+  it('names recognized identities from object_detections in the caption', () => {
+    const c = buildCaption({
+      ...baseEvent,
+      object_detections: [
+        { class: 'person', identity: 'barun', confidence: 0.9 },
+        { class: 'person', identity: 'dad', confidence: 0.85 },
+        { class: 'person', identity: 'unknown', confidence: 0.7 },
+      ],
+    } as Parameters<typeof buildCaption>[0]);
+    expect(c).toContain('barun');
+    expect(c).toContain('dad');
+    // 'unknown' identities are represented by the generic unknown-people phrase,
+    // not the literal token.
+  });
+
+  it('names recognized identities from face_detections names in the caption', () => {
+    const c = buildCaption({
+      ...baseEvent,
+      face_detections: [{ name: 'mom', confidence: 0.9 }],
+    } as Parameters<typeof buildCaption>[0]);
+    expect(c).toContain('mom');
   });
 
   it('survives missing optional fields', () => {

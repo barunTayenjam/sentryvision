@@ -7,6 +7,12 @@ WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir "uniface[cpu]"
+# uniface pulls opencv-python, mediapipe pulls opencv-contrib-python,
+# albumentations pulls opencv-python-headless — four dists stomp each
+# other's cv2/ and cv2 ends up missing attrs (CascadeClassifier).
+# Normalize to exactly one dist: contrib headless.
+RUN pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python || true \
+    && pip install --no-cache-dir --no-deps --force-reinstall "opencv-contrib-python-headless>=4.8.0,<5"
 
 # ---- Runtime stage ----
 FROM python:3.11-slim

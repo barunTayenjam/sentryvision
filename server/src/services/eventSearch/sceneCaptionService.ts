@@ -10,7 +10,8 @@ export interface CaptionEvent {
   faces_detected?: number;
   known_faces_count?: number;
   unknown_faces_count?: number;
-  object_detections?: Array<{ class?: string }>;
+  object_detections?: Array<{ class?: string; identity?: string | null }>;
+  face_detections?: Array<{ name?: string }>;
   scene_context?: Record<string, unknown> | null;
   motion_stats?: Record<string, unknown> | null;
   relations?: EventRelation[] | null;
@@ -34,13 +35,29 @@ export function buildCaption(ev: CaptionEvent): string {
   if (ev.camera_id) parts.push(`camera ${ev.camera_id}`);
 
   const counts = new Map<string, number>();
+  // Identity names from object_detections + face_detections (only recognized,
+  // non-"unknown" names — "unknown" identities stay generic).
+  const identityNames = new Set<string>();
   const detections = Array.isArray(ev.object_detections) ? ev.object_detections : [];
   for (const d of detections) {
     const cls = d.class;
     if (cls) counts.set(cls, (counts.get(cls) ?? 0) + 1);
+    const ident = d.identity;
+    if (ident && ident !== 'unknown') identityNames.add(ident);
+  }
+  const faceDetections = Array.isArray(ev.face_detections) ? ev.face_detections : [];
+  for (const fd of faceDetections) {
+    const nm = fd.name;
+    if (nm && nm !== 'unknown') identityNames.add(nm);
   }
   const classList = [...counts.entries()].map(([cls, n]) => `${n} ${cls}`);
   if (classList.length) parts.push(classList.join(', '));
+
+  // Recognized identity names right after the generic counts, so queries like
+  // "when was dad at the gate" hit the caption embedding directly.
+  if (identityNames.size > 0) {
+    parts.push([...identityNames].sort().join(', '));
+  }
 
   const known = ev.known_faces_count ?? 0;
   const unknown = ev.unknown_faces_count ?? 0;

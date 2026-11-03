@@ -67,7 +67,7 @@ def retrain_model():
         }), 500
 
 
-@face_bp.route('/known-faces', methods=['GET'])
+@face_bp.route('/known-faces', methods=['GET', 'POST'])
 def get_known_faces():
     try:
         if state.face_recognition is None:

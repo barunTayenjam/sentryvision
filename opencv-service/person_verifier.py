@@ -160,14 +160,4 @@ class HumanVerifier:
         # is a real person in practice. Floor kept low (0.55) because distant/
         # back-facing persons land here after pose (kp=0) and face both fail —
         # those models "couldn't evaluate", not "found no human".
-        #
-        # Size gate: tiny/distant ROIs (e.g. 39×54 px) starve face/pose models
-        # and YOLO scores are unreliable there — independent AI vision models
-        # frequently disagree on sub-100px figures. Require a tighter score
-        # floor for small crops so we don't ship false positives as verified.
-        floor = self._effective_score_floor()
-        if roi_h < 160 or roi_w < 120:
-            floor = max(floor, 0.85)  # small bbox → need high YOLO confidence
-        elif roi_h < 240 or roi_w < 180:
-            floor = max(floor, 0.70)  # medium bbox → moderate confidence
-        return done("score_floor", yolo_score >= floor)
+        return done("score_floor", yolo_score >= self._effective_score_floor())

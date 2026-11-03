@@ -49,6 +49,14 @@ export const periodReportParamsSchema = z.object({
   camera: z.string().nullable().optional(),
 });
 
+export const currentOccupancyParamsSchema = z.object({
+  objectClass: z
+    .enum(['vehicle', 'car', 'motorcycle', 'bicycle', 'truck', 'bus', 'person', 'all'])
+    .nullish()
+    .transform((v) => v ?? 'vehicle'),
+  camera: z.string().nullable().optional(),
+});
+
 export type VehicleTimelineParams = z.infer<typeof vehicleTimelineParamsSchema>;
 export type HumanCountsParams = z.infer<typeof humanCountsParamsSchema>;
 export type PeriodReportParams = z.infer<typeof periodReportParamsSchema>;
@@ -853,6 +861,7 @@ export async function semanticSearchTool(params: {
 export const personVisitsParamsSchema = z.object({
   range: rangeSchema,
   camera: z.string().nullable().optional(),
+  who: z.string().nullable().optional(),
 });
 
 export type PersonVisitsParams = z.infer<typeof personVisitsParamsSchema>;
@@ -937,6 +946,7 @@ export async function personVisits(params: {
   camera: string | null;
   from: Date;
   to: Date;
+  who: string | undefined;
 }): Promise<{
   tables: import('../../types/chat.js').ChatTable[];
   evidence: import('../../types/chat.js').ToolEvidence & { visits?: number };
@@ -947,6 +957,12 @@ export async function personVisits(params: {
   if (params.camera) {
     values.push(params.camera);
     cameraCond = `AND ed.camera_id = $${values.length}`;
+  }
+  let whoCond = '';
+  if (params.who) {
+    const whoParam = `$${values.length + 1}`;
+    values.push(params.who);
+    whoCond = `AND LOWER(ed.identity) = LOWER(${whoParam})`;
   }
 
   const rows = (await AppDataSource.query(
@@ -964,6 +980,7 @@ export async function personVisits(params: {
        AND ed.timestamp >= $1 AND ed.timestamp < $2
        AND ed.confidence >= $3
        ${cameraCond}
+       ${whoCond}
      GROUP BY ed.track_id, ed.camera_id
      ORDER BY first_seen`,
     values,
@@ -1003,5 +1020,82 @@ export async function personVisits(params: {
     ],
     evidence: { detections, events, cameras, visits: visits.length, tracks: rows.length },
     images: [],
+  };
+}
+
+export async function currentOccupancy(params: {
+  objectClass?: string;
+  camera?: string | null;
+}): Promise<{
+  tables: import('../../types/chat.js').ChatTable[];
+  evidence: import('../../types/chat.js').ToolEvidence;
+  count: number;
+  classLabel: string;
+}> {
+  const targetClass = params.objectClass ?? 'vehicle';
+  const classes =
+    targetClass === 'vehicle' || targetClass === 'all'
+      ? [...VEHICLE_CLASSES]
+      : VEHICLE_CLASSES.includes(targetClass)
+        ? [targetClass]
+        : [targetClass];
+
+  const windowMinutes = 15;
+  const cutoff = new Date(Date.now() - windowMinutes * 60 * 1000);
+
+  const values: unknown[] = [classes, cutoff, CONFIDENCE_FLOOR];
+  let cameraCond = '';
+  if (params.camera) {
+    values.push(params.camera);
+    cameraCond = `AND ed.camera_id = $${values.length}`;
+  }
+
+  const rows = (await AppDataSource.query(
+    `SELECT ed.camera_id,
+            ed.class,
+            ed.track_id,
+            MAX(ed.timestamp) AS last_seen,
+            MAX(ed.confidence) AS confidence
+     FROM event_detections ed
+     WHERE ed.class = ANY($1::text[])
+       AND ed.timestamp >= $2
+       AND ed.confidence >= $3
+       AND (ed.track_state IS NULL OR ed.track_state != 'lost')
+       ${cameraCond}
+     GROUP BY ed.camera_id, ed.class, ed.track_id
+     ORDER BY last_seen DESC`,
+    values,
+  )) as Array<Record<string, unknown>>;
+
+  const count = rows.length;
+  const isVehicleClass = classes.length === 1 && VEHICLE_CLASSES.includes(classes[0]);
+  const classLabel =
+    targetClass === 'all'
+      ? count === 1 ? 'object' : 'objects'
+      : isVehicleClass
+        ? count === 1 ? 'vehicle' : 'vehicles'
+        : count === 1 ? targetClass : `${targetClass}s`;
+
+  return {
+    tables: [
+      {
+        caption: `Current ${classLabel} (seen within last ${windowMinutes} min)`,
+        headers: ['Camera', 'Class', 'Track', 'Last seen (IST)', 'Confidence'],
+        rows: rows.map((r) => [
+          String(r.camera_id ?? '?'),
+          String(r.class ?? ''),
+          Number(r.track_id ?? 0),
+          fmtIstTime(r.last_seen as Date),
+          `${Math.round(Number(r.confidence || 0) * 100)}%`,
+        ]),
+      },
+    ],
+    evidence: {
+      detections: rows.length,
+      events: rows.length,
+      cameras: [...new Set(rows.map((r) => String(r.camera_id ?? '')).filter(Boolean))],
+    },
+    count,
+    classLabel,
   };
 }
