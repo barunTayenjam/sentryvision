@@ -33,35 +33,33 @@ interface PersonBox {
   label: string;
 }
 
-interface FaceDetectionData {
-  confidence: number;
-  boundingBox?: number[];
-  personName?: string;
-  isKnown?: boolean;
-}
-
-interface DetectionBox {
-  class?: string;
-  identity?: string | null;
-  confidence?: number;
-  humanVerified?: boolean;
-  bbox?: { x: number; y: number; width: number; height: number };
-}
-
-interface EnhancedEvent {
+interface MotionEvent {
   id: string;
-  event_type: string;
-  timestamp: string;
   cameraId: string;
   cameraName?: string;
+  timestamp: Date;
+  imageUrl: string | null;
   confidence: number;
-  imageUrl: string;
-  persons_detected: number;
-  faces_detected: number;
-  known_faces_count: number;
-  unknown_faces_count: number;
-  object_detections: DetectionBox[] | null;
-  face_detections: FaceDetectionData[] | null;
+  labels?: string[];
+  detections?: Array<{
+    type: 'person' | 'face' | 'object';
+    confidence: number;
+    name?: string;
+    isKnown?: boolean;
+    class?: string;
+    identity?: string | null;
+    trackId?: number;
+    trackletLen?: number | null;
+    verificationTier?: string | null;
+    humanVerified?: boolean;
+    personAttributes?: Record<string, unknown> | null;
+    boundingBox: { x: number; y: number; width: number; height: number };
+  }>;
+  personCount?: number;
+  faceCount?: number;
+  knownFaces?: number;
+  unknownFaces?: number;
+  severity?: 'alert' | 'detection' | 'info';
 }
 
 function getFilterFromParams(params: URLSearchParams): FilterState {
@@ -77,19 +75,14 @@ function getFilterFromParams(params: URLSearchParams): FilterState {
   };
 }
 
-/** Extract person boxes from object_detections, assigning A/B/C labels per event.
+/** Extract person boxes from mapped detections, assigning A/B/C labels per event.
  *  Recognized identities keep their name; unknowns get sequential letters. */
-function extractPersonBoxes(event: EnhancedEvent): PersonBox[] {
-  const dets = (event.object_detections ?? []).filter(
-    (d) => (d.class ?? '').toLowerCase() === 'person' && d.bbox,
-  );
+function extractPersonBoxes(event: MotionEvent): PersonBox[] {
+  const dets = (event.detections ?? []).filter((d) => d.type === 'person' && d.boundingBox);
   const used = new Map<string, string>(); // identity → letter
   let letterIdx = 0;
   return dets.map((d) => {
-    const identity =
-      d.identity && d.identity !== 'unknown' && d.identity.trim() !== ''
-        ? d.identity.trim()
-        : null;
+    const identity = d.identity && d.identity !== 'unknown' && d.identity.trim() !== '' ? d.identity.trim() : null;
     let letter: string;
     if (identity) {
       letter = used.get(identity) ?? PERSON_LETTERS[letterIdx++ % 26];
@@ -97,8 +90,9 @@ function extractPersonBoxes(event: EnhancedEvent): PersonBox[] {
     } else {
       letter = PERSON_LETTERS[letterIdx++ % 26];
     }
+    const bbox = d.boundingBox ?? { x: 0, y: 0, width: 0, height: 0 };
     return {
-      bbox: d.bbox!,
+      bbox,
       identity,
       confidence: d.confidence ?? 0,
       humanVerified: !!d.humanVerified,
@@ -129,18 +123,12 @@ export default function FacesGalleryPage() {
       end_date: filters.dateRange.end?.toISOString(),
     });
 
-  const events = useMemo<EnhancedEvent[]>(
-    () => (listData?.events ?? []) as unknown as EnhancedEvent[],
-    [listData],
-  );
+  const events = listData?.events ?? [];
   const totalPages = listData?.totalPages ?? 1;
 
   // Person events: any event with at least one person detection (boxes present).
   const personEvents = useMemo(
-    () =>
-      events
-        .map((e) => ({ event: e, boxes: extractPersonBoxes(e) }))
-        .filter(({ boxes }) => boxes.length > 0),
+    () => events.map((e) => ({ event: e, boxes: extractPersonBoxes(e) })).filter(({ boxes }) => boxes.length > 0),
     [events],
   );
 
@@ -165,8 +153,7 @@ export default function FacesGalleryPage() {
         cameraId: f.cameraId !== 'all' ? f.cameraId : null,
         detectionType: f.detectionType !== 'all' ? f.detectionType : null,
         quickRange: f.quickRange !== 'all' ? f.quickRange : null,
-        startDate:
-          f.quickRange === 'all' && f.dateRange.start ? f.dateRange.start.toISOString() : null,
+        startDate: f.quickRange === 'all' && f.dateRange.start ? f.dateRange.start.toISOString() : null,
         endDate: f.quickRange === 'all' && f.dateRange.end ? f.dateRange.end.toISOString() : null,
         page: null,
         eventId: null,
@@ -192,10 +179,9 @@ export default function FacesGalleryPage() {
 
   const cameraList = cameras.map((c) => ({ id: c.id, name: c.name }));
 
-  const renderPersonBoxes = (boxes: PersonBox[], faces: FaceDetectionData[]) => {
+  const renderPersonBoxes = (boxes: PersonBox[]) => {
     return (
       <div className="absolute inset-0 pointer-events-none">
-        {/* Person boxes — green with A/B/C/identity labels */}
         {boxes.map((p, idx) => {
           const b = p.bbox;
           const known = p.identity !== null;
@@ -229,29 +215,6 @@ export default function FacesGalleryPage() {
             </div>
           );
         })}
-        {/* Face boxes — blue outlines where a face was recognized */}
-        {(faces ?? []).map((f, idx) => {
-          const bbox = f.boundingBox;
-          if (!bbox || bbox.length !== 4) return null;
-          const [x, y, w, h] = bbox;
-          return (
-            <div
-              key={`f-${idx}`}
-              className="absolute border-2 border-sky-400 bg-sky-400/10"
-              style={{
-                left: `${(x / 640) * 100}%`,
-                top: `${(y / 360) * 100}%`,
-                width: `${(w / 640) * 100}%`,
-                height: `${(h / 360) * 100}%`,
-              }}
-              title={`face ${f.personName ?? ''} ${Math.round((f.confidence ?? 0) * 100)}%`}
-            >
-              <div className="absolute -bottom-4 left-0 bg-sky-400 text-black text-[9px] px-1 rounded whitespace-nowrap">
-                {f.isKnown ? f.personName : 'face'}
-              </div>
-            </div>
-          );
-        })}
       </div>
     );
   };
@@ -265,7 +228,7 @@ export default function FacesGalleryPage() {
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">
-              Persons &amp; Faces Gallery
+              Persons & Faces Gallery
             </h1>
             <p className="text-sm text-muted-foreground">
               Bounding boxes per person — A, B, C until a face is enrolled and recognized
@@ -300,10 +263,7 @@ export default function FacesGalleryPage() {
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-lg overflow-hidden bg-card border border-white/[0.10]"
-              >
+              <div key={i} className="animate-pulse rounded-lg overflow-hidden bg-card border border-white/[0.10]">
                 <div className="aspect-video bg-white/[0.04]" />
               </div>
             ))}
@@ -358,7 +318,7 @@ export default function FacesGalleryPage() {
                         No image
                       </div>
                     )}
-                    {renderPersonBoxes(boxes, event.face_detections ?? [])}
+                    {renderPersonBoxes(boxes)}
                     <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/85 text-xs font-medium flex items-center gap-1.5 text-white">
                       <User className="h-3 w-3" />
                       {boxes.map((b) => b.identity ?? b.letter).join(', ')}
@@ -432,9 +392,7 @@ export default function FacesGalleryPage() {
                 })}
                 <PaginationItem>
                   <PaginationNext
-                    onClick={
-                      currentPage === totalPages ? undefined : () => handlePageChange(currentPage + 1)
-                    }
+                    onClick={currentPage === totalPages ? undefined : () => handlePageChange(currentPage + 1)}
                     className={currentPage === totalPages ? 'pointer-events-none opacity-40' : ''}
                   />
                 </PaginationItem>
