@@ -1,6 +1,7 @@
 {
   "name": "frontend-next",
   "version": "0.1.0",
+  "description": "SentryVision frontend - Home security monitoring dashboard",
   "private": true,
   "scripts": {
     "dev": "next dev",
