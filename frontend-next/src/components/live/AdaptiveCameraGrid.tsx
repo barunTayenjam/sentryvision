@@ -30,7 +30,7 @@ function LiveCameraTile({
     handlePointerMove,
     handlePointerUp,
     handleStreamStart,
-  } = useCameraStream({ camera, streamSrc: streamSrcForTile(camera.id, focused) });
+  } = useCameraStream({ camera, streamSrc: streamSrcForTile(camera.id) });
 
   return (
     <motion.div
