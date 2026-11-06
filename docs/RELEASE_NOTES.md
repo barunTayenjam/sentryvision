@@ -1,5 +1,37 @@
 # SentryVision Release Notes
 
+## SentryVision v1.7.2 — Cheap Stream Profile
+
+**Release date**: November 2026
+
+Live viewing now costs ~250 kbps per tile instead of 1.5–4 Mbps, on both LAN
+and internet. Designed for FUP-limited connections and remote viewers over
+cloudflared (WebRTC UDP cannot cross the tunnel; those viewers use MSE).
+
+### Streaming
+
+- **`h264_cheap` go2rtc profile** (640×360 @ 10 fps @ 250 kbps, measured
+  ~255 kbps): every grid *and* focused tile pulls it. The 1440p main stream
+  is never sent to a browser. Transcoder spawns per viewer, costs nothing idle.
+- **HD 60s burst**: focused tiles get a button that raises the profile to the
+  720p substream (1500 kbps) for one minute, then reconnects to cheap.
+- **Hidden-tab teardown**: a tab hidden for 30 s stops streaming and resumes on
+  return. Start paths refuse to run while hidden; the teardown timer is
+  re-armed on every effect run; a resume suppressed by the restart cooldown
+  retries once.
+- **JPEG relay opt-out**: `requestStream` accepts `frames: false` (default
+  `true`). Video-decoding clients opt out, saving ~4.5 Mbps per camera of
+  relayed JPEGs nobody rendered. The flag survives socket reconnect replay.
+- **Canvas fallback removed**: a failing MSE path now surfaces an error or
+  retries MSE once — it never silently switches to a costlier transport.
+  Remote (WAN) viewers skip the 5 s WebRTC timeout and go straight to MSE.
+
+### Fixes
+
+- `next build` unblocked: unused `SortOption` type in the Faces Gallery had
+  failed every build since the gallery landed, leaving the deployed bundle
+  stale.
+
 ## SentryVision v1.7.1 — Honest Detection Pipeline
 
 **Release date**: October 2026

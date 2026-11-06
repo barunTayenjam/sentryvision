@@ -32,7 +32,7 @@ Success means: the user trusts SentryVision as their primary security system, ch
 ## Capabilities and Constraints
 
 **Core capabilities:**
-- Live camera streaming (WebRTC/MSE/canvas fallback via go2rtc)
+- Live camera streaming (WebRTC/MSE/HLS via go2rtc; default 640×360@10fps@250 kbps per viewer, 60 s HD burst on demand)
 - AI object detection (YOLOv8n): person, car, dog, cat
 - Human verification pipeline (YOLO high confidence → face → MediaPipe pose → score floor)
 - Face recognition and visitor timeline (InsightFace ArcFace)

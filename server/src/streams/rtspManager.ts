@@ -27,6 +27,17 @@ export interface Camera {
 
 import { CameraPersistence, optimalFpsForViewers } from './CameraPersistence.js';
 
+/**
+ * Room a socket joins to receive relayed JPEG frames.
+ *
+ * Clients that decode video themselves (WebRTC / MSE / HLS) never draw these
+ * frames, and relaying them costs ~4.5 Mbps per camera. They pass
+ * `frames: false` and stay out of the room; `viewerCount`, health tracking and
+ * the python subscription are unaffected.
+ */
+export const frameRoomFor = (cameraId: string, frames?: boolean): string | null =>
+  frames === false ? null : `camera-${cameraId}-live`;
+
 export class StreamManager {
   private persistence = new CameraPersistence();
 
@@ -178,10 +189,12 @@ export class StreamManager {
           cameraId: string;
           role?: 'live' | 'detect' | 'record';
           tier?: 'HIGH' | 'MEDIUM' | 'LOW';
+          /** Client decodes video itself; no relayed JPEG frames needed. */
+          frames?: boolean;
         }) => {
-          const { cameraId, role = 'live', tier = 'MEDIUM' } = data;
+          const { cameraId, role = 'live', tier = 'MEDIUM', frames = true } = data;
           logger.info(
-            `Received requestStream for camera ${cameraId} role ${role} tier ${tier}`,
+            `Received requestStream for camera ${cameraId} role ${role} tier ${tier} frames ${frames}`,
             'STREAM',
           );
           const camera = this.cameras.get(cameraId);
@@ -193,8 +206,8 @@ export class StreamManager {
           camera.activeViewers.add(socket.id);
           const viewerCount = camera.activeViewers.size;
 
-          const roomName = `camera-${cameraId}-live`;
-          socket.join(roomName);
+          const roomName = frameRoomFor(cameraId, frames);
+          if (roomName) socket.join(roomName);
 
           camera.isActive = true;
 

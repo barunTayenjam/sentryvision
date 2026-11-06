@@ -3,6 +3,7 @@ import { useCameraStore } from '@/stores/camera';
 import { useSocketStore } from '@/stores/socket';
 import socketService from '@/services/SocketService';
 import { getAuthToken } from '@/services/api/baseClient';
+import { streamSrcForHq } from '@/lib/streamSrc';
 import { Camera } from '@/types/security';
 
 const camLog = (msg: string, meta?: Record<string, unknown>) =>
@@ -44,7 +45,12 @@ interface UseCameraStreamOptions {
 }
 
 export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCameraStreamOptions) => {
-  const src = streamSrc ?? camera.id;
+  // Full-quality burst state. Default is the cheap stream; `activateHq` flips
+  // this for a bounded window so a viewer can read a face or a plate.
+  const [hqActive, setHqActive] = useState(false);
+  const hqTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hqPrevRef = useRef(false);
+  const src = hqActive ? streamSrcForHq(camera.id) : (streamSrc ?? camera.id);
   const startCameraStream = useCameraStore((state) => state.startCameraStream);
   const stopCameraStream = useCameraStore((state) => state.stopCameraStream);
   const socketConnected = useSocketStore((state) => state.connected);
@@ -87,6 +93,8 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   const restartCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibilityRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failureCountRef = useRef<number>(0);
   const connectionAttemptsRef = useRef<number>(0);
   const lastConnectionAttemptRef = useRef<number>(0);
@@ -96,18 +104,16 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   const streamStartTimeRef = useRef<number>(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const latestFrameRef = useRef<HTMLImageElement | null>(null);
-  const hasNewFrameRef = useRef(false);
-  const renderRafRef = useRef<number>(0);
   const isWanRef = useRef<boolean | null>(null);
-  const frameUnsubscribeRef = useRef<(() => void) | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const handleStreamStartRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const handleStreamStopRef = useRef<() => void>(() => {});
 
   const RESTART_COOLDOWN_MS = 5000;
   const VISIBILITY_DEBOUNCE_MS = 1000;
+  // A hidden tab used to keep pulling the full stream forever. Grace period
+  // keeps quick tab-switches from tearing down and rebuilding the pipeline.
+  const HIDDEN_GRACE_MS = 30000;
   const MAX_FAILURE_COUNT = 3;
   const CONNECTION_RATE_LIMIT_MS = 3000;
   const MAX_CONNECTION_ATTEMPTS_PER_MINUTE = 10;
@@ -598,99 +604,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     });
   }, [src, camera.id, camera.name, cleanupMSE, handleStreamRestart]);
 
-  const stopFrameRender = useCallback(() => {
-    if (renderRafRef.current) {
-      cancelAnimationFrame(renderRafRef.current);
-      renderRafRef.current = 0;
-    }
-    if (resizeObserverRef.current) {
-      resizeObserverRef.current.disconnect();
-      resizeObserverRef.current = null;
-    }
-    if (frameUnsubscribeRef.current) {
-      frameUnsubscribeRef.current();
-      frameUnsubscribeRef.current = null;
-    }
-    if (latestFrameRef.current) {
-      URL.revokeObjectURL(latestFrameRef.current.src);
-      latestFrameRef.current = null;
-    }
-    hasNewFrameRef.current = false;
-  }, []);
-
-  const startFrameRender = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const resizeCanvas = () => {
-      const parent = canvas.parentElement;
-      if (parent) {
-        canvas.width = parent.clientWidth;
-        canvas.height = parent.clientHeight;
-      }
-    };
-
-    resizeCanvas();
-    const parent = canvas.parentElement;
-    if (parent) {
-      resizeObserverRef.current = new ResizeObserver(resizeCanvas);
-      resizeObserverRef.current.observe(parent);
-    }
-
-    const render = () => {
-      if (hasNewFrameRef.current && latestFrameRef.current) {
-        const img = latestFrameRef.current;
-        if (
-          canvas.width > 0 &&
-          canvas.height > 0 &&
-          img.naturalWidth > 0 &&
-          img.naturalHeight > 0
-        ) {
-          const scale = Math.max(
-            canvas.width / img.naturalWidth,
-            canvas.height / img.naturalHeight,
-          );
-          const x = (canvas.width - img.naturalWidth * scale) / 2;
-          const y = (canvas.height - img.naturalHeight * scale) / 2;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, x, y, img.naturalWidth * scale, img.naturalHeight * scale);
-        }
-        hasNewFrameRef.current = false;
-      }
-      renderRafRef.current = requestAnimationFrame(render);
-    };
-    renderRafRef.current = requestAnimationFrame(render);
-  }, []);
-
-  const setupWanStream = useCallback(() => {
-    setIsWanStream(true);
-    stopFrameRender();
-    frameUnsubscribeRef.current = socketService.on('frame', (raw: Record<string, unknown>) => {
-      const event = raw as { cameraId: string; data: ArrayBuffer; role: string; timestamp: string };
-      if (event.cameraId !== camera.id) return;
-      const blob = new Blob([event.data], { type: 'image/jpeg' });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        if (latestFrameRef.current) {
-          URL.revokeObjectURL(latestFrameRef.current.src);
-        }
-        latestFrameRef.current = img;
-        hasNewFrameRef.current = true;
-      };
-      img.onerror = () => URL.revokeObjectURL(url);
-      img.src = url;
-    });
-    startFrameRender();
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = null;
-    }
-    setConnectionState('connected');
-  }, [camera.id, stopFrameRender, startFrameRender]);
-
   const getStreamErrorMessage = useCallback((err: unknown, mode: 'initial' | 'webrtc' | 'mse' | 'hls' | 'socket' = 'initial') => {
     if (mode === 'socket') {
       const msg = err instanceof Error ? err.message : String(err);
@@ -732,6 +645,12 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
 
   const handleStreamStart = useCallback(async () => {
     if (streamActionRef.current === 'start') return;
+    // A hidden tab must not consume data. The teardown below sets the state
+    // that would otherwise re-trigger an auto-start seconds later.
+    if (typeof document !== 'undefined' && document.hidden) {
+      camLog(`[CameraStream:${camera.name}] Start skipped: tab is hidden`);
+      return;
+    }
 
     camLog(`[CameraStream:${camera.name}] Starting stream`);
     setError(null);
@@ -760,7 +679,23 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       await startCameraStream(camera.id);
 
       if (isWanRef.current === true) {
-        setupWanStream();
+        // Known-remote viewer: WebRTC media is UDP and never crosses the
+        // cloudflared tunnel, so skip the 5s WebRTC timeout and go to MSE.
+        camLog(`[CameraStream:${camera.name}] Known remote viewer, using MSE directly`);
+        try {
+          const mseTimeout = new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('MSE timeout')), 15000),
+          );
+          await Promise.race([startMSE(), mseTimeout]);
+          camLog(`[CameraStream:${camera.name}] MSE connected`);
+          startWatchdog();
+        } catch (mseError) {
+          camLog(`[CameraStream:${camera.name}] MSE failed for remote viewer (${mseError})`);
+          cleanupMSE();
+          setError(getStreamErrorMessage(mseError, 'mse'));
+          setConnectionState('error');
+          setIsStreaming(false);
+        }
         return;
       }
 
@@ -795,10 +730,26 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
             camLog(`[CameraStream:${camera.name}] HLS connected`);
             startWatchdog();
           } catch (hlsError) {
-            camLog(`[CameraStream:${camera.name}] HLS failed (${hlsError}), falling back to WAN canvas`);
+            camLog(
+              `[CameraStream:${camera.name}] HLS failed (${hlsError}), retrying MSE once`,
+            );
             cleanupHLS();
-            isWanRef.current = true;
-            setupWanStream();
+            try {
+              const retryTimeout = new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('MSE retry timeout')), 15000),
+              );
+              await Promise.race([startMSE(), retryTimeout]);
+              isWanRef.current = false;
+              camLog(`[CameraStream:${camera.name}] MSE connected on retry`);
+              startWatchdog();
+            } catch (retryError) {
+              camLog(`[CameraStream:${camera.name}] All transports failed (${retryError})`);
+              cleanupMSE();
+              isWanRef.current = true;
+              setError(getStreamErrorMessage(retryError, 'mse'));
+              setConnectionState('error');
+              setIsStreaming(false);
+            }
           }
         }
       }
@@ -816,7 +767,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       cleanupPeerConnection();
       cleanupMSE();
       cleanupHLS();
-      stopFrameRender();
       streamActionRef.current = null;
     }
   }, [
@@ -829,8 +779,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection,
     cleanupMSE,
     cleanupHLS,
-    stopFrameRender,
-    setupWanStream,
     startWatchdog,
     getStreamErrorMessage,
   ]);
@@ -850,7 +798,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection();
     cleanupMSE();
     cleanupHLS();
-    stopFrameRender();
     stopCameraStream(camera.id);
   }, [
     camera.id,
@@ -859,11 +806,48 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection,
     cleanupMSE,
     cleanupHLS,
-    stopFrameRender,
   ]);
 
   handleStreamStartRef.current = handleStreamStart;
   handleStreamStopRef.current = handleStreamStop;
+
+  // HQ burst: raise the profile for a bounded window, then drop back. The
+  // reconnect itself is driven by the tier-change effect below, which runs
+  // after commit so the stream callbacks already see the new `src`.
+  const activateHq = useCallback(
+    (seconds = 60) => {
+      if (hqActive) return;
+      setHqActive(true);
+      if (hqTimeoutRef.current) clearTimeout(hqTimeoutRef.current);
+      hqTimeoutRef.current = setTimeout(
+        () => setHqActive(false),
+        Math.max(1, seconds) * 1000,
+      );
+    },
+    [hqActive],
+  );
+
+  useEffect(() => {
+    if (hqPrevRef.current === hqActive) return;
+    hqPrevRef.current = hqActive;
+    if (typeof document !== 'undefined' && document.hidden) {
+      // Hidden tabs aren't streaming; the visibility handler picks up the new
+      // tier when the tab returns.
+      return;
+    }
+    camLog(`[CameraStream:${camera.name}] Tier changed (hq=${hqActive}), reconnecting`);
+    handleStreamRestart();
+  }, [hqActive, camera.name, handleStreamRestart]);
+
+  useEffect(
+    () => () => {
+      if (hqTimeoutRef.current) {
+        clearTimeout(hqTimeoutRef.current);
+        hqTimeoutRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     return () => {
@@ -878,14 +862,14 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       if (watchdogIntervalRef.current) {
         clearInterval(watchdogIntervalRef.current);
       }
-      stopFrameRender();
     };
-  }, [stopFrameRender]);
+  }, []);
 
   useEffect(() => {
     let mountTimer: ReturnType<typeof setTimeout> | null = null;
 
     const maybeStart = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       if (
         autoStart &&
         socketConnected &&
@@ -946,38 +930,78 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   }, [isStreaming, socketConnected]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const clearTimers = () => {
       if (visibilityDebounceRef.current) {
         clearTimeout(visibilityDebounceRef.current);
+        visibilityDebounceRef.current = null;
+      }
+      if (hideStopTimerRef.current) {
+        clearTimeout(hideStopTimerRef.current);
+        hideStopTimerRef.current = null;
+      }
+      if (visibilityRetryRef.current) {
+        clearTimeout(visibilityRetryRef.current);
+        visibilityRetryRef.current = null;
+      }
+    };
+
+    // Hidden: stop pulling data once the grace period expires. This is the
+    // biggest single data saver on both LAN and WAN — a forgotten tab used
+    // to stream at full bitrate indefinitely.
+    const armHiddenStop = () => {
+      if (hideStopTimerRef.current) clearTimeout(hideStopTimerRef.current);
+      hideStopTimerRef.current = setTimeout(() => {
+        hideStopTimerRef.current = null;
+        if (!document.hidden) return;
+        camLog(
+          `[CameraStream:${camera.name}] Tab hidden for ${HIDDEN_GRACE_MS}ms, stopping stream`,
+        );
+        streamActionRef.current = null;
+        handleStreamStopRef.current();
+      }, HIDDEN_GRACE_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      clearTimers();
+      if (document.hidden) {
+        armHiddenStop();
+        return;
       }
 
       visibilityDebounceRef.current = setTimeout(() => {
-        if (!document.hidden && socketConnected && autoStart) {
-          if (isWanStream) {
-            return;
-          }
-          const isVideoPlaying =
-            videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3;
-          const isStalled = Date.now() - lastVideoTimeUpdateRef.current > STALL_THRESHOLD_MS;
+        if (document.hidden || !socketConnected || !autoStart) return;
+        const isVideoPlaying =
+          videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3;
+        const isStalled = Date.now() - lastVideoTimeUpdateRef.current > STALL_THRESHOLD_MS;
 
-          if (!isStreaming || connectionState !== 'connected' || !isVideoPlaying || isStalled) {
-            camLog(
-              `[CameraStream:${camera.name}] Tab became visible and stream needs restart.`,
-              {
-                isStreaming,
-                connectionState,
-                isVideoPlaying,
-                isStalled,
-              },
-            );
+        if (!isStreaming || connectionState !== 'connected' || !isVideoPlaying || isStalled) {
+          camLog(`[CameraStream:${camera.name}] Tab became visible and stream needs restart.`, {
+            isStreaming,
+            connectionState,
+            isVideoPlaying,
+            isStalled,
+          });
+          handleStreamRestart();
+          // A restart inside the cooldown is silently dropped, which leaves a
+          // black tile until the next watchdog tick. Retry once, past the
+          // cooldown, but only if no start actually ran.
+          visibilityRetryRef.current = setTimeout(() => {
+            visibilityRetryRef.current = null;
+            if (document.hidden) return;
+            if (streamActionRef.current === 'start') return;
+            camLog(`[CameraStream:${camera.name}] Retrying resume after suppressed restart`);
             handleStreamRestart();
-          } else {
-            // Just ensure it's playing
-            videoRef.current?.play().catch(() => {});
-          }
+          }, RESTART_COOLDOWN_MS + 2000);
+        } else {
+          videoRef.current?.play().catch(() => {});
         }
       }, VISIBILITY_DEBOUNCE_MS);
     };
+
+    // Re-arm on every run: an effect re-run (socket reconnect, state change)
+    // tears the timer down in cleanup, and a tab that hid before that would
+    // otherwise never be stopped.
+    if (typeof document !== 'undefined' && document.hidden) armHiddenStop();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
@@ -985,9 +1009,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
-      if (visibilityDebounceRef.current) {
-        clearTimeout(visibilityDebounceRef.current);
-      }
+      clearTimers();
     };
   }, [
     socketConnected,
@@ -996,7 +1018,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     connectionState,
     handleStreamRestart,
     camera.name,
-    isWanStream,
   ]);
 
   useEffect(() => {
@@ -1090,15 +1111,16 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       cleanupPeerConnection();
       cleanupMSE();
       cleanupHLS();
-      stopFrameRender();
     };
-  }, [cleanupPeerConnection, cleanupMSE, cleanupHLS, stopFrameRender]);
+  }, [cleanupPeerConnection, cleanupMSE, cleanupHLS]);
 
   return {
     videoRef,
     canvasRef,
     isStreaming,
     isWanStream,
+    hqActive,
+    activateHq,
     isMuted,
     setIsMuted,
     error,

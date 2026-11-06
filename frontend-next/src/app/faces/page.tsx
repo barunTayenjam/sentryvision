@@ -19,8 +19,6 @@ import {
   PaginationNext,
 } from '@/components/ui/pagination';
 
-type SortOption = 'newest' | 'oldest' | 'confidence';
-
 /** Auto-labels per event: A, B, C … for distinct persons, or identity name if recognized. */
 const PERSON_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 

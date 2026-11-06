@@ -6,6 +6,11 @@ ffmpeg:
   # CPU optimization (Oct 12): dropped to 10fps / 1500k from 15fps / 2048k
   # to cut go2rtc transcode load (was 50% of 2-CPU cap). Tiles still smooth.
   h264_low: "-codec:v libx264 -filter:v scale=1280:720,fps=10 -preset:v ultrafast -tune:v zerolatency -g:v 15 -b:v 1500k -pix_fmt:v yuv420p"
+  # Viewer profile (Nov 6): 640x360 @ 10fps @ 250k. Measured 261 kbps actual on
+  # cam1 vs 1500 kbps for h264_low — a 5.7x cut in per-viewer data on both LAN
+  # and WAN. Tiles AND focused view use this; the 1440p main stream is never
+  # sent to a browser. See docs/superpowers/specs/2026-11-06-cheap-stream-profile-design.md
+  h264_cheap: "-codec:v libx264 -filter:v scale=640:360,fps=10 -preset:v ultrafast -tune:v zerolatency -g:v 20 -b:v 250k -maxrate:v 250k -bufsize:v 500k"
 
 streams:
   cam1:
@@ -22,6 +27,11 @@ streams:
     - rtsp://127.0.0.1:8554/cam1_low
   cam2_sub:
     - rtsp://127.0.0.1:8554/cam2_low
+  # Cheap viewer streams — what every browser gets by default.
+  cam1_cheap:
+    - ffmpeg:rtsp://127.0.0.1:8554/cam1#video=h264_cheap
+  cam2_cheap:
+    - ffmpeg:rtsp://127.0.0.1:8554/cam2#video=h264_cheap
 
 api:
   listen: ":1984"

@@ -63,7 +63,7 @@ C4Container
 | Frontend | Next.js 14 (React 18) / TS / TailwindCSS / Radix (shadcn/ui) | :5173 dev (next dev) / :9753 prod (static export) | — | `next build` exports static `out/` served by backend; no separate container in production |
 | Backend | Express 5 / TypeScript / TypeORM / Socket.io | :9753 (public) | 512M | One container serves both API + frontend; bound to 0.0.0.0 |
 | OpenCV | Python Flask + MOG2 + YOLOv8n ONNX + InsightFace ArcFace | :8084 (HTTP, 127.0.0.1) / :9090 (WS, 127.0.0.1) | 2GB | Owns RTSP ingestion, motion gating, AI inference; not exposed publicly |
-| go2rtc | alexxit/go2rtc:1.9.14 | :8555 (WebRTC, public) / :1984 (API, 127.0.0.1) | 128M | Holds sole RTSP connection per camera; management API bound to localhost |
+| go2rtc | alexxit/go2rtc:1.9.14 | :8555 (WebRTC, public) / :1984 (API, 127.0.0.1) | 128M | Holds sole RTSP connection per camera; management API bound to localhost. Transcode profiles: `h264_low` (720p/1500k, 24/7 → OpenCV), `h264_cheap` (640×360/10fps/250k, per-viewer → browsers, spawned on demand) |
 | PostgreSQL | PostgreSQL 15+ | :5432 (127.0.0.1) | 512M | Tuned for low-memory (shared_buffers=48MB, max_connections=15) |
 | Cache | In-memory Map | — | — | Redis optional (`REDIS_DISABLED=false`), disabled by default to save ~150MB RAM |
 

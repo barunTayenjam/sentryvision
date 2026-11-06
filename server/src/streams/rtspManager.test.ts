@@ -430,3 +430,16 @@ describe('Frame Relay E2E (DOC-08)', () => {
     });
   });
 });
+
+describe('Frame relay opt-out (cheap profile)', () => {
+  it('joins the JPEG frame room by default', async () => {
+    const { frameRoomFor } = await import('./rtspManager.js');
+    expect(frameRoomFor('cam1')).toBe('camera-cam1-live');
+    expect(frameRoomFor('cam1', true)).toBe('camera-cam1-live');
+  });
+
+  it('does not join the frame room when the client renders video itself', async () => {
+    const { frameRoomFor } = await import('./rtspManager.js');
+    expect(frameRoomFor('cam1', false)).toBeNull();
+  });
+});
