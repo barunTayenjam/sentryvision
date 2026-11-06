@@ -51,4 +51,9 @@ chk ".env and cameras.json untracked" bash -c \
 chk "no JWT secrets in client bundle" bash -c \
   '! grep -rq "JWT_ACCESS_SECRET\|JWT_REFRESH_SECRET\|NVIDIA_API_KEY" frontend-next/out/_next/static/ 2>/dev/null'
 
+# I7: no untracked/uneviewed .sql sits in the runner's glob path.
+chk "migrations dir has only tracked .sql files" bash -c '
+  cd database/migrations
+  diff <(ls *.sql 2>/dev/null | sort) <(git ls-files "*.sql" | xargs -n1 basename | sort) | wc -l | grep -qx 0'
+
 exit $fail

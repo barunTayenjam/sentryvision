@@ -59,7 +59,7 @@ Recommendations).
 | `server/src` | 35 387 | 13 controllers, 30 route files, 49 services, 27 models, middleware, cron |
 | `frontend-next/src` | 16 638 | 12 views, 8 app pages, 44 components, 10 hooks, 4 zustand stores |
 | `opencv-service` | 12 560 | 37 modules: `app.py` (Flask entry), `rtsp_ingestion/`, detection chain |
-| `database/migrations` | 1 930 | **44 tracked: 001–034 and 036–045 — there is no 035** (historical gap, not a defect; don't "fix" the numbering). `046_create_face_clusters.sql` is untracked owner WIP. |
+| `database/migrations` | 1 930 | **44 tracked: 001–034 and 036–045 — there is no 035** (never existed; ledger confirms; see `database/migrations/README.md`). Drafts live in `migrations/wip/`, invisible to the runner. |
 | `scripts/` | 3 149 | health, backup, deploy, reconciliation, `check-invariants.sh` |
 | `e2e/` | — | Playwright tests against live :9753 (`tester` DB account) |
 
@@ -179,13 +179,15 @@ refresh loop terminates, legacy `/app/*` routes vs canonical.
 
 ### 8. Data, migrations, cron
 
-44 tracked migrations — idempotency (restarts re-run boot; a re-run migration
-must not corrupt). `utils/cronJobs.ts` + retention + cleanup services: cron
-jobs must be restart-safe (see Recommendations — advisory locks).
+44 tracked migrations (001–034, 036–045 — no 035 ever existed; drafts
+quarantined in `migrations/wip/`, enforced by invariant 7). Check idempotency
+(a re-run must not corrupt). `utils/cronJobs.ts` + retention + cleanup
+services: cron jobs must be restart-safe (see Recommendations — advisory
+locks).
 
 ## Invariants — executable + prose
 
-Run `bash scripts/check-invariants.sh` (all six PASS as of 2026-11-06):
+Run `bash scripts/check-invariants.sh` (all seven PASS as of 2026-11-06):
 
 1. **No stray `rtsp://` consumer in source** (go2rtc is the sole RTSP client).
 2. **`h264_low` detection profile pinned** (720p/10fps/1500k).
@@ -212,18 +214,18 @@ Prose invariants (not yet scripted):
 - **Uncommitted owner WIP — do not touch, commit, or review the diffs**:
   `docker-compose.yml`, `opencv-service/{arcface_recognizer,cluster_and_populate}.py`,
   `opencv-service/rtsp_ingestion/frame_pipeline.py`, untracked
-  `database/migrations/046_create_face_clusters.sql`,
+  `database/migrations/wip/046_create_face_clusters.sql` (quarantined, see below),
   `opencv-service/face_clustering.json`, `opencv-service/tests/test_arcface_cosine.py`.
   Where WIP files overlap review areas, review the committed version only.
 - **Runtime ≠ HEAD for the Python service**: opencv hot-mounts the working
   tree, so the running container executes the WIP code, not HEAD. Runtime
   observations (logs, behavior, invariant check 4's neighbor containers) may
   reflect uncommitted code — say so when reporting.
-- **Untracked migration 046 is one command away from running**: boot does NOT
-  auto-migrate (`synchronize: false`, no `migrationsRun`), but
-  `database/migrations/migrate.ts:37` globs every `*.sql` in the directory —
-  the next manual `cd database && npm run migrate` executes the WIP DDL. It is
-  kept out only by nobody running that command.
+- **Untracked migration 046 — QUARANTINED 2026-11-06**: moved to
+  `database/migrations/wip/046_create_face_clusters.sql`, outside the
+  runner's glob (verified: `readdirSync` + `.endsWith('.sql')` at top level
+  only). Invariant 7 now fails the build if an untracked `.sql` reappears at
+  the top level. The ledger-vs-files diff is otherwise exact (44/44).
 - Accepted deferred minors (streaming): stale "browser canvas" error copy,
   dead `isWanStream` state, latent `streamSrc ?? camera.id` 1440p path,
   `activateHq` can't extend a burst, no fallback for missing `_cheap` stream.
@@ -253,7 +255,7 @@ npm run build && npm run build:server   # writes out/ + dist/ (hot-mounted!)
 docker restart sentryvision-app         # production restart
 docker run --rm -v .../opencv-service:/app:ro ... pytest   # pip installs in throwaway container
 # e2e suite: runs against LIVE :9753 with the 'tester' account on the production DB
-# any psql INSERT/UPDATE/DELETE, any npm run migrate (046 hazard above)
+# any psql INSERT/UPDATE/DELETE, any npm run migrate
 ```
 
 ## Recorded recommendations (not blockers — owner decides; #1 is urgent)
@@ -272,9 +274,8 @@ docker run --rm -v .../opencv-service:/app:ro ... pytest   # pip installs in thr
    bind-mounted source makes "what's running" fuzzy.
 7. **Media tokens**: short-lived, per-stream scoped tokens instead of the
    long-lived JWT in `?token=`.
-8. **WIP quarantine**: move untracked `046_create_face_clusters.sql` out of
-   `database/migrations/` (e.g. `migrations/wip/`) until it's ready — the
-   runner's glob makes its current location a loaded trigger.
+8. ~~WIP quarantine~~ **DONE 2026-11-06**: `046` now lives in
+   `database/migrations/wip/`; invariant 7 guards the top level.
 
 ## Findings template (copy per finding)
 
