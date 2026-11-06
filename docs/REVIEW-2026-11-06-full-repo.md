@@ -7,14 +7,19 @@ sensitivity, exposure, and current repo state.
 
 ## Deliverable format (read first)
 
-- **Report only — do not modify code.** Fixes are approved separately by the owner.
+- **Report only — do not modify code, the working tree, or containers.** Fixes
+  are approved separately by the owner.
 - **Severity scale**: `Critical` (data loss / security hole / outage) ·
   `High` (realistic risk or cost) · `Improvement` (worthwhile, not urgent) ·
   `Optional` (style).
 - **Time budget**: one working session. Work areas in order; if time runs out,
   stop and report coverage honestly — areas 1–4 matter more than 5–8.
-- **Findings template** (bottom of this file): one block per finding, with
-  file:line, severity, why it matters, and the concrete fix.
+- **Coverage levels — state which you used per area**: `Read` (every line of
+  the listed files) · `Skim` (structure + spot-read of hot paths) · `Grep`
+  (targeted search for the named patterns). 65k LOC does not fit one session
+  as Read; suggested split: areas 1–4 `Read`/`Skim`, areas 5–8 `Grep` with
+  named entry files, plus `npm audit` + `pip check` style sweeps.
+- **Findings template**: last section of this file.
 
 ## What the system is
 
@@ -35,9 +40,11 @@ area 2.
 | sentryvision-relations | 8085 (internal) | RelateAnything sidecar (numpy 2, isolated) |
 
 **Network exposure**: LAN on `0.0.0.0:9753`; internet via a cloudflared tunnel
-(`argus.tayenjam.dpdns.org`) terminating at the app; JWT-gated. WebRTC media
-(:8555) is LAN-only in practice (UDP can't cross the tunnel). No TLS on 9753
-itself — TLS ends at cloudflared.
+(`argus.tayenjam.dpdns.org`) terminating at the app; JWT-gated. Port 8555
+(WebRTC) is published `0.0.0.0` — LAN-exposed by design; whether the router
+forwards it from the WAN is an owner check, not verifiable from code. WebRTC
+media can't cross the tunnel (UDP), so remote viewers use proxied MSE. No TLS
+on 9753 itself — TLS ends at cloudflared.
 
 **Deploy model**: containers bind-mount the source. Python hot-mounts (edit +
 `docker restart`), Node runs from `server/dist` (compile + restart), frontend
@@ -77,12 +84,36 @@ Recommendations).
 
 `server/src/auth/`, `middleware/{auth,enhancedRateLimit,go2rtcAuth}.ts`,
 `AuthController.ts`, `docs/SECURITY.md`. Check: JWT access/refresh rotation,
-MFA, session + password-history enforcement, rate-limit keying (per-IP vs
-per-account — the app sits behind cloudflared, so per-IP may collapse to the
-tunnel's IP). **`?token=` media URLs** (`go2rtcAuth.ts`, `withMediaToken()` in
-`useCameraStream.ts`): review lifetime, scope, leak paths — server logs, Referer
-headers, browser history, anything cached. Long-lived tokens in URLs are the
-known weak spot; short-lived per-stream tokens are the fix if warranted.
+MFA, session + password-history enforcement.
+
+Specific holes to probe (code refs verified):
+
+- **Socket.io auth** (`streams/socketAuth.ts` — `verifySocketAuth` checks the
+  JWT on handshake and sets `socket.data.user`): does `requestStream` in
+  `streams/rtspManager.ts` do any per-camera authorization before
+  `socket.join(roomName)`? None is visible. Also: can a valid socket join
+  rooms for both cameras / roles it shouldn't?
+- **go2rtc proxy is unfiltered** (`server/src/index.ts:52-58`): auth-gated,
+  but **no method restriction and no path allowlist** — an authenticated user
+  can reach the full go2rtc admin API, including endpoints that add streams
+  with arbitrary ffmpeg args (`PUT /api/streams`). Assess: exec/SSRF via
+  stream source URLs.
+- **Rate limiting behind the tunnel**: `trust proxy` is OFF (deliberate —
+  see `enhancedRateLimit.keying.test.ts:16`, X-Forwarded-For is never read).
+  cloudflared dials the app directly, so every tunnel client shares one
+  `req.ip` → one rate-limit bucket for all internet users. Assess blast
+  radius (lockout? brute-force window?).
+- **LAN is plain HTTP**: `0.0.0.0:9753` — JWTs and `?token=` media URLs
+  travel unencrypted on the LAN; TLS ends at cloudflared. Rate severity.
+- **`?token=` media URLs** (`go2rtcAuth.ts`, `withMediaToken()`): lifetime,
+  scope, leak paths — server logs (the request logger at `index.ts:63` skips
+  `/api/streams`, verify nothing else logs the query), Referer, browser
+  history. Long-lived tokens in URLs are the known weak spot.
+- **Supply chain + host hardening sweep** (`Grep` level): `npm audit` in
+  root/frontend/server; Dockerfile root users, capabilities, source bind
+  mounts; path traversal in event-image/media serving (static routes,
+  `getEventPath`); raw SQL usage in TypeORM repositories; PII (names, faces,
+  tokens) in `logger` output.
 
 ### 2. Biometric data (most sensitive data in the system)
 
@@ -95,17 +126,24 @@ deletion on request (is there a path that removes an identity end-to-end?),
 and whether `scripts/backup.sh` includes them (it backs up DB + files — so
 backups carry biometric data wherever they're stored).
 
+**Legal posture for severity calibration**: face embeddings of visitors,
+neighbors, and passers-by. India's DPDP Act 2023 may apply even to household
+systems depending on how purpose and consent are read; the reviewer's job is
+not legal advice — judge severity assuming this data deserves
+consent-aware collection, bounded retention, and a working deletion path.
+
 ### 3. Data leaving the house
 
 `services/nvidia/`, `services/chat/` (RAG), `nvidiaAnalysisService.ts`.
 Verified config: `NVIDIA_API_BASE_URL=http://192.168.31.99:20128/v1` — a **LAN
-gateway (9router)**, not the public NVIDIA API. `OLLAMA_BASE_URL` overrides to
-local inference when set. So: what leaves the network depends on the gateway's
-upstream routing — confirm which model IDs route to cloud providers, and what
-payloads (event images? captions? embeddings?) they carry. Also review
-**prompt-injection handling** for event-derived text (camera-visible text,
-object labels) fed to the LLM, and that the chat/RAG answers are
-event-grounded (v1.7.1 removed fabricated attributes — don't let them return).
+gateway (9router), over plaintext HTTP**, not the public NVIDIA API.
+`OLLAMA_BASE_URL` overrides to local inference when set. Check: which model
+IDs on that gateway route to cloud providers and what payloads (event images?
+captions? embeddings?) they carry; how the gateway's API keys are stored and
+whether they appear in logs; prompt-injection handling for event-derived text
+(camera-visible text, object labels) fed to the LLM; and that chat/RAG answers
+stay event-grounded (v1.7.1 removed fabricated attributes — don't let them
+return).
 
 ### 4. Detection pipeline (highest churn: 81 file touches / 90 days)
 
@@ -128,8 +166,9 @@ findings; its "deferred minors" are accepted.
 
 `scripts/backup.sh` (DB + files) — **no restore procedure exists or has been
 tested**; that gap is itself a finding. Check: backup encryption, retention of
-backup copies, and whether a restore rehearsal is feasible from the artifacts
-the script produces.
+backup copies. **Concrete deliverable**: a restore rehearsal into a scratch
+Postgres container from the artifacts the script produces (documented steps +
+observed result), not just an observation.
 
 ### 7. Frontend correctness
 
@@ -146,22 +185,26 @@ jobs must be restart-safe (see Recommendations — advisory locks).
 
 ## Invariants — executable + prose
 
-Run `bash scripts/check-invariants.sh` (all four PASS as of 2026-11-06):
+Run `bash scripts/check-invariants.sh` (all six PASS as of 2026-11-06):
 
 1. **No stray `rtsp://` consumer in source** (go2rtc is the sole RTSP client).
 2. **`h264_low` detection profile pinned** (720p/10fps/1500k).
 3. **`h264_cheap` viewer profile present** (640×360, 250k cap).
 4. **Runtime**: cameras see only go2rtc, ≤1 connection each; no other
    container touches port 554.
+5. **Secrets untracked** (`.env`, `server/cameras.json` not in git).
+6. **No auth secrets in the shipped client bundle** (`out/_next/static/`).
 
 Prose invariants (not yet scripted):
 
-5. The 24/7 detection transcode must never be starved by viewer load.
-6. No browser path may reach the 1440p main stream.
-7. Detection runs **in Python**; Node's `detectObjects`/`detectFaces` are
+7. The 24/7 detection transcode must never be starved by viewer load.
+8. No browser path may reach the 1440p main stream (the latent
+   `streamSrc ?? camera.id` fallback in `useCameraStream.ts` is the one known
+   candidate — it's an accepted deferred minor, callers pass `streamSrc`
+   today; a grep for callers not passing it is the cheap check).
+9. Detection runs **in Python**; Node's `detectObjects`/`detectFaces` are
    disabled guards that throw — by design.
-8. Secrets only via `.env` / `server/cameras.json` (gitignored).
-9. Never `git add -A` — owner WIP is present (below).
+10. Never `git add -A` — owner WIP is present (below).
 
 ## Current repo state (2026-11-06)
 
@@ -172,34 +215,53 @@ Prose invariants (not yet scripted):
   `database/migrations/046_create_face_clusters.sql`,
   `opencv-service/face_clustering.json`, `opencv-service/tests/test_arcface_cosine.py`.
   Where WIP files overlap review areas, review the committed version only.
+- **Runtime ≠ HEAD for the Python service**: opencv hot-mounts the working
+  tree, so the running container executes the WIP code, not HEAD. Runtime
+  observations (logs, behavior, invariant check 4's neighbor containers) may
+  reflect uncommitted code — say so when reporting.
+- **Untracked migration 046 is one command away from running**: boot does NOT
+  auto-migrate (`synchronize: false`, no `migrationsRun`), but
+  `database/migrations/migrate.ts:37` globs every `*.sql` in the directory —
+  the next manual `cd database && npm run migrate` executes the WIP DDL. It is
+  kept out only by nobody running that command.
 - Accepted deferred minors (streaming): stale "browser canvas" error copy,
   dead `isWanStream` state, latent `streamSrc ?? camera.id` 1440p path,
   `activateHq` can't extend a burst, no fallback for missing `_cheap` stream.
 - Never human-exercised: hidden-tab teardown and HD burst in a logged-in
   browser (verified by measurement + code reading only).
 
-## Verification commands
+## Verification commands — safety classes
+
+**Read-only, run freely**:
 
 ```bash
-bash scripts/check-invariants.sh                                              # invariants above
-cd frontend-next && npm run typecheck && npm run lint && npx vitest run      # all pass; 0 lint errors expected
-cd server && node --experimental-vm-modules node_modules/.bin/jest           # all pass — plain npx jest FAILS on ESM
+bash scripts/check-invariants.sh
+cd frontend-next && npm run typecheck && npm run lint && npx vitest run
+cd server && node --experimental-vm-modules node_modules/.bin/jest   # plain npx jest FAILS on ESM
 cd server && npx tsc --noEmit -p tsconfig.json
-# Python suite (host and container have no pytest — documented in docs/OPENCV-SERVICE.md):
-docker run --rm -v $(pwd)/opencv-service:/app:ro -w /app sentryvision-opencv:latest \
-  sh -c "pip install -q pytest pytest-asyncio && python -m pytest tests -q"
-npm run build && npm run build:server                                        # then docker restart sentryvision-app
 docker ps --format '{{.Names}}\t{{.Status}}' | grep sentryvision
 curl -s http://127.0.0.1:1984/api/streams | python3 -m json.tool
+docker logs sentryvision-{app,opencv,go2rtc} --since 5m
+docker exec sentryvision-postgres psql -U sentryvision -d sentryvision -c '\dt'
 ```
 
-Data: `docker exec sentryvision-postgres psql -U sentryvision -d sentryvision`.
-Logs: `docker logs sentryvision-{app,opencv,go2rtc} --since 5m`.
+**Mutating — owner sign-off required before running** (change the working
+tree, write artifacts, restart production, or hit the live DB):
 
-## Recorded recommendations (not blockers — owner decides)
+```bash
+npm run build && npm run build:server   # writes out/ + dist/ (hot-mounted!)
+docker restart sentryvision-app         # production restart
+docker run --rm -v .../opencv-service:/app:ro ... pytest   # pip installs in throwaway container
+# e2e suite: runs against LIVE :9753 with the 'tester' account on the production DB
+# any psql INSERT/UPDATE/DELETE, any npm run migrate (046 hazard above)
+```
 
-1. **CSP hash fragility**: compute allowlist at build time, or fail the
-   healthcheck loudly when `out/` and the allowlist disagree.
+## Recorded recommendations (not blockers — owner decides; #1 is urgent)
+
+1. **CSP hash fragility — HIGH priority**: a blank page after any frontend
+   deploy is an outage. Compute the allowlist at build time, or fail the
+   healthcheck loudly when `out/` and the allowlist disagree. Cheap fix,
+   removes a whole failure class.
 2. **Jest ESM flag**: put it in an npm script so `npx jest` stops being tribal
    knowledge.
 3. **pytest**: bake it into a test image instead of pip-installing per run.
@@ -210,6 +272,9 @@ Logs: `docker logs sentryvision-{app,opencv,go2rtc} --since 5m`.
    bind-mounted source makes "what's running" fuzzy.
 7. **Media tokens**: short-lived, per-stream scoped tokens instead of the
    long-lived JWT in `?token=`.
+8. **WIP quarantine**: move untracked `046_create_face_clusters.sql` out of
+   `database/migrations/` (e.g. `migrations/wip/`) until it's ready — the
+   runner's glob makes its current location a loaded trigger.
 
 ## Findings template (copy per finding)
 

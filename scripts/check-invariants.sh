@@ -43,4 +43,12 @@ else
   echo "SKIP  cameras see only go2rtc (go2rtc container not reachable)"
 fi
 
+# I5: secrets never committed (env + camera credentials untracked).
+chk ".env and cameras.json untracked" bash -c \
+  '! git ls-files --error-unmatch .env server/cameras.json >/dev/null 2>&1'
+
+# I6: no auth secrets leaked into the shipped client bundle.
+chk "no JWT secrets in client bundle" bash -c \
+  '! grep -rq "JWT_ACCESS_SECRET\|JWT_REFRESH_SECRET\|NVIDIA_API_KEY" frontend-next/out/_next/static/ 2>/dev/null'
+
 exit $fail
