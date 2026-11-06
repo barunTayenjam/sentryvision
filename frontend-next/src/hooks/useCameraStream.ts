@@ -103,12 +103,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   const streamStartTimeRef = useRef<number>(0);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const latestFrameRef = useRef<HTMLImageElement | null>(null);
-  const hasNewFrameRef = useRef(false);
-  const renderRafRef = useRef<number>(0);
   const isWanRef = useRef<boolean | null>(null);
-  const frameUnsubscribeRef = useRef<(() => void) | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const handleStreamStartRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const handleStreamStopRef = useRef<() => void>(() => {});
@@ -608,99 +603,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     });
   }, [src, camera.id, camera.name, cleanupMSE, handleStreamRestart]);
 
-  const stopFrameRender = useCallback(() => {
-    if (renderRafRef.current) {
-      cancelAnimationFrame(renderRafRef.current);
-      renderRafRef.current = 0;
-    }
-    if (resizeObserverRef.current) {
-      resizeObserverRef.current.disconnect();
-      resizeObserverRef.current = null;
-    }
-    if (frameUnsubscribeRef.current) {
-      frameUnsubscribeRef.current();
-      frameUnsubscribeRef.current = null;
-    }
-    if (latestFrameRef.current) {
-      URL.revokeObjectURL(latestFrameRef.current.src);
-      latestFrameRef.current = null;
-    }
-    hasNewFrameRef.current = false;
-  }, []);
-
-  const startFrameRender = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const resizeCanvas = () => {
-      const parent = canvas.parentElement;
-      if (parent) {
-        canvas.width = parent.clientWidth;
-        canvas.height = parent.clientHeight;
-      }
-    };
-
-    resizeCanvas();
-    const parent = canvas.parentElement;
-    if (parent) {
-      resizeObserverRef.current = new ResizeObserver(resizeCanvas);
-      resizeObserverRef.current.observe(parent);
-    }
-
-    const render = () => {
-      if (hasNewFrameRef.current && latestFrameRef.current) {
-        const img = latestFrameRef.current;
-        if (
-          canvas.width > 0 &&
-          canvas.height > 0 &&
-          img.naturalWidth > 0 &&
-          img.naturalHeight > 0
-        ) {
-          const scale = Math.max(
-            canvas.width / img.naturalWidth,
-            canvas.height / img.naturalHeight,
-          );
-          const x = (canvas.width - img.naturalWidth * scale) / 2;
-          const y = (canvas.height - img.naturalHeight * scale) / 2;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, x, y, img.naturalWidth * scale, img.naturalHeight * scale);
-        }
-        hasNewFrameRef.current = false;
-      }
-      renderRafRef.current = requestAnimationFrame(render);
-    };
-    renderRafRef.current = requestAnimationFrame(render);
-  }, []);
-
-  const setupWanStream = useCallback(() => {
-    setIsWanStream(true);
-    stopFrameRender();
-    frameUnsubscribeRef.current = socketService.on('frame', (raw: Record<string, unknown>) => {
-      const event = raw as { cameraId: string; data: ArrayBuffer; role: string; timestamp: string };
-      if (event.cameraId !== camera.id) return;
-      const blob = new Blob([event.data], { type: 'image/jpeg' });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        if (latestFrameRef.current) {
-          URL.revokeObjectURL(latestFrameRef.current.src);
-        }
-        latestFrameRef.current = img;
-        hasNewFrameRef.current = true;
-      };
-      img.onerror = () => URL.revokeObjectURL(url);
-      img.src = url;
-    });
-    startFrameRender();
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = null;
-    }
-    setConnectionState('connected');
-  }, [camera.id, stopFrameRender, startFrameRender]);
-
   const getStreamErrorMessage = useCallback((err: unknown, mode: 'initial' | 'webrtc' | 'mse' | 'hls' | 'socket' = 'initial') => {
     if (mode === 'socket') {
       const msg = err instanceof Error ? err.message : String(err);
@@ -770,7 +672,23 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       await startCameraStream(camera.id);
 
       if (isWanRef.current === true) {
-        setupWanStream();
+        // Known-remote viewer: WebRTC media is UDP and never crosses the
+        // cloudflared tunnel, so skip the 5s WebRTC timeout and go to MSE.
+        camLog(`[CameraStream:${camera.name}] Known remote viewer, using MSE directly`);
+        try {
+          const mseTimeout = new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('MSE timeout')), 15000),
+          );
+          await Promise.race([startMSE(), mseTimeout]);
+          camLog(`[CameraStream:${camera.name}] MSE connected`);
+          startWatchdog();
+        } catch (mseError) {
+          camLog(`[CameraStream:${camera.name}] MSE failed for remote viewer (${mseError})`);
+          cleanupMSE();
+          setError(getStreamErrorMessage(mseError, 'mse'));
+          setConnectionState('error');
+          setIsStreaming(false);
+        }
         return;
       }
 
@@ -805,10 +723,26 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
             camLog(`[CameraStream:${camera.name}] HLS connected`);
             startWatchdog();
           } catch (hlsError) {
-            camLog(`[CameraStream:${camera.name}] HLS failed (${hlsError}), falling back to WAN canvas`);
+            camLog(
+              `[CameraStream:${camera.name}] HLS failed (${hlsError}), retrying MSE once`,
+            );
             cleanupHLS();
-            isWanRef.current = true;
-            setupWanStream();
+            try {
+              const retryTimeout = new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('MSE retry timeout')), 15000),
+              );
+              await Promise.race([startMSE(), retryTimeout]);
+              isWanRef.current = false;
+              camLog(`[CameraStream:${camera.name}] MSE connected on retry`);
+              startWatchdog();
+            } catch (retryError) {
+              camLog(`[CameraStream:${camera.name}] All transports failed (${retryError})`);
+              cleanupMSE();
+              isWanRef.current = true;
+              setError(getStreamErrorMessage(retryError, 'mse'));
+              setConnectionState('error');
+              setIsStreaming(false);
+            }
           }
         }
       }
@@ -826,7 +760,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       cleanupPeerConnection();
       cleanupMSE();
       cleanupHLS();
-      stopFrameRender();
       streamActionRef.current = null;
     }
   }, [
@@ -839,8 +772,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection,
     cleanupMSE,
     cleanupHLS,
-    stopFrameRender,
-    setupWanStream,
     startWatchdog,
     getStreamErrorMessage,
   ]);
@@ -860,7 +791,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection();
     cleanupMSE();
     cleanupHLS();
-    stopFrameRender();
     stopCameraStream(camera.id);
   }, [
     camera.id,
@@ -869,7 +799,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     cleanupPeerConnection,
     cleanupMSE,
     cleanupHLS,
-    stopFrameRender,
   ]);
 
   handleStreamStartRef.current = handleStreamStart;
@@ -921,9 +850,8 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       if (watchdogIntervalRef.current) {
         clearInterval(watchdogIntervalRef.current);
       }
-      stopFrameRender();
     };
-  }, [stopFrameRender]);
+  }, []);
 
   useEffect(() => {
     let mountTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1153,9 +1081,8 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       cleanupPeerConnection();
       cleanupMSE();
       cleanupHLS();
-      stopFrameRender();
     };
-  }, [cleanupPeerConnection, cleanupMSE, cleanupHLS, stopFrameRender]);
+  }, [cleanupPeerConnection, cleanupMSE, cleanupHLS]);
 
   return {
     videoRef,
