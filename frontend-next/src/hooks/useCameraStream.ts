@@ -3,6 +3,7 @@ import { useCameraStore } from '@/stores/camera';
 import { useSocketStore } from '@/stores/socket';
 import socketService from '@/services/SocketService';
 import { getAuthToken } from '@/services/api/baseClient';
+import { streamSrcForHq } from '@/lib/streamSrc';
 import { Camera } from '@/types/security';
 
 const camLog = (msg: string, meta?: Record<string, unknown>) =>
@@ -44,7 +45,12 @@ interface UseCameraStreamOptions {
 }
 
 export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCameraStreamOptions) => {
-  const src = streamSrc ?? camera.id;
+  // Full-quality burst state. Default is the cheap stream; `activateHq` flips
+  // this for a bounded window so a viewer can read a face or a plate.
+  const [hqActive, setHqActive] = useState(false);
+  const hqTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hqPrevRef = useRef(false);
+  const src = hqActive ? streamSrcForHq(camera.id) : (streamSrc ?? camera.id);
   const startCameraStream = useCameraStore((state) => state.startCameraStream);
   const stopCameraStream = useCameraStore((state) => state.stopCameraStream);
   const socketConnected = useSocketStore((state) => state.connected);
@@ -865,6 +871,39 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   handleStreamStartRef.current = handleStreamStart;
   handleStreamStopRef.current = handleStreamStop;
 
+  // HQ burst: raise the profile for a bounded window, then drop back. The
+  // reconnect itself is driven by the tier-change effect below, which runs
+  // after commit so the stream callbacks already see the new `src`.
+  const activateHq = useCallback(
+    (seconds = 60) => {
+      if (hqActive) return;
+      setHqActive(true);
+      if (hqTimeoutRef.current) clearTimeout(hqTimeoutRef.current);
+      hqTimeoutRef.current = setTimeout(
+        () => setHqActive(false),
+        Math.max(1, seconds) * 1000,
+      );
+    },
+    [hqActive],
+  );
+
+  useEffect(() => {
+    if (hqPrevRef.current === hqActive) return;
+    hqPrevRef.current = hqActive;
+    camLog(`[CameraStream:${camera.name}] Tier changed (hq=${hqActive}), reconnecting`);
+    handleStreamRestart();
+  }, [hqActive, camera.name, handleStreamRestart]);
+
+  useEffect(
+    () => () => {
+      if (hqTimeoutRef.current) {
+        clearTimeout(hqTimeoutRef.current);
+        hqTimeoutRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     return () => {
       if (rateLimitResetRef.current) {
@@ -1099,6 +1138,8 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     canvasRef,
     isStreaming,
     isWanStream,
+    hqActive,
+    activateHq,
     isMuted,
     setIsMuted,
     error,
