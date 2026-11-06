@@ -86,10 +86,14 @@ class SocketService {
     socket?.disconnect();
   }
 
-  requestStream(cameraId: string, role: 'detect' | 'record' | 'live' = 'live') {
+  requestStream(
+    cameraId: string,
+    role: 'detect' | 'record' | 'live' = 'live',
+    options: { frames?: boolean } = {},
+  ) {
     const key = `${cameraId}-${role}`;
     this.requestedStreams.add(key);
-    this.socket?.emit('requestStream', { cameraId, role });
+    this.socket?.emit('requestStream', { cameraId, role, frames: options.frames ?? true });
   }
 
   stopStream(cameraId: string, role: 'detect' | 'record' | 'live' = 'live') {

@@ -92,7 +92,9 @@ export const useCameraStore = create<CameraState>((set, get) => ({
     if (!socketService.isConnected()) {
       await socketService.connect();
     }
-    socketService.requestStream(id);
+    // No `frames: true` here: the tile decodes video via WebRTC/MSE/HLS, so
+    // relayed JPEG frames would be ~4.5 Mbps of pixels nothing draws.
+    socketService.requestStream(id, 'live', { frames: false });
     set((state) => {
       const next = new Set(state.streamingCameras);
       next.add(id);
