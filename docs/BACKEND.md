@@ -132,7 +132,7 @@ app.set('io', io);
 - `enhancedMotionDetected` — motion + optional face/person analysis
 
 **Events received from client:**
-- `requestStream` — join camera room
+- `requestStream` — join camera room. Optional `frames: false` (set by every video-decoding client) keeps the socket out of the JPEG frame room; viewer tracking and the python subscription are unaffected
 - `stopStream` — leave camera room
 
 ## Authentication

@@ -89,9 +89,10 @@
 | **WebRTC** | **<200ms** LAN | Desktop, mobile — lowest latency |
 | **MSE/fMP4** | ~500ms | VPN, Tailscale, Cloudflare Tunnel (TCP-only) |
 | **HLS** | ~2s | Wide compatibility, CDN-friendly |
-| **Canvas Fallback** | ~1s | Zero-config last resort (Socket.io JPEG) |
 
-**Adaptive quality**: grid tiles pull the 720p substream; focused/fullscreen pulls native resolution. Automatic — no configuration needed.
+**Fixed cheap profile**: every tile — grid and focused — pulls the dedicated `*_cheap` transcode (640×360 @ 10 fps @ **250 kbps**, measured ~255 kbps). The 1440p main stream is never sent to a browser. Focused tiles get an **HD 60s** button that bursts the 720p substream (1500 kbps) for one minute, then drops back.
+
+**Data discipline**: a hidden tab tears its streams down after 30 s and resumes on return; clients that decode video themselves pass `frames: false` on `requestStream` so the Socket.io JPEG relay stays off (~4.5 Mbps per camera saved).
 
 </details>
 

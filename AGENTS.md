@@ -283,6 +283,7 @@ The detection pipeline runs entirely in Python. Node.js receives structured even
 
 - **Socket.io** for live camera frames and motion alerts
 - Events: `requestStream`, `stopStream`, `frame`, `motionDetected`
+- Live tiles decode video themselves (WebRTC/MSE/HLS via go2rtc `*_cheap` profile, 250 kbps) and send `requestStream` with `frames: false`, so the JPEG frame relay stays off for them
 - Frontend connects via `SocketService.ts` → `SocketContext.tsx`
 
 ## Environment Variables

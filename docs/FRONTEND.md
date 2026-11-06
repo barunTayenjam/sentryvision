@@ -91,7 +91,9 @@ All in `src/services/api/`. Use `baseClient.ts` helpers (`apiGet`, `apiPost`, `a
 
 Events listened: `streamFrame`, `cameraStatus`, `eventCreated`, `personDetected`, `faceDetected`, `enhancedMotionDetected`
 
-Events emitted: `requestStream`, `stopStream`
+Events emitted: `requestStream` (live tiles send `frames: false` — they decode video via WebRTC/MSE/HLS and would never draw the relayed JPEGs), `stopStream`
+
+`useCameraStream` defaults every tile to the `<id>_cheap` go2rtc profile (640×360 @ 10 fps @ 250 kbps); focused tiles expose an "HD 60s" burst (`activateHq`, 720p `_sub`). A tab hidden for 30 s tears its streams down and resumes on return. The old JPEG-canvas fallback is gone — MSE failure surfaces an error instead of silently switching to a costlier transport.
 
 ## UI Stack
 
