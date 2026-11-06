@@ -48,3 +48,19 @@ export function collectInlineScriptHashes(frontendDistPath: string): string[] {
   }
   return [...hashes].sort();
 }
+
+// The allowlist must follow `next build` while the app keeps running: a
+// startup-only snapshot goes stale and the new inline scripts are blocked
+// (blank page). TTL cache — cheap re-walk at most once per window; 0 disables.
+let hashCache: { path: string; at: number; hashes: string[] } | null = null;
+
+export function getInlineScriptHashesCached(frontendDistPath: string): string[] {
+  const ttlMs = Number(process.env.CSP_HASH_TTL_MS ?? 30_000);
+  const now = Date.now();
+  if (hashCache && hashCache.path === frontendDistPath && now - hashCache.at < ttlMs) {
+    return hashCache.hashes;
+  }
+  const hashes = collectInlineScriptHashes(frontendDistPath);
+  hashCache = { path: frontendDistPath, at: now, hashes };
+  return hashes;
+}
