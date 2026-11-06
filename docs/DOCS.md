@@ -18,6 +18,7 @@
 | [`OPENCV-SERVICE.md`](./OPENCV-SERVICE.md) | Python detection pipeline | CV / backend devs |
 | [`SECURITY.md`](./SECURITY.md) | Auth, rate limiting, headers, risks | Security reviewers |
 | [`RELEASE_NOTES.md`](./RELEASE_NOTES.md) | Release history (v1.6.0, v1.7.0) | Everyone |
+| [`REVIEW-2026-11-06-cheap-stream-profile.md`](./REVIEW-2026-11-06-cheap-stream-profile.md) | Review brief: streaming bandwidth change (scope, invariants, evidence) | Reviewers |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Full system architecture with C4 diagrams | Architects / senior devs |
 
 ## Architecture Decision Records (ADRs)
