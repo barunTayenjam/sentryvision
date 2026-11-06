@@ -4,12 +4,30 @@ import type { FaceDetectedEvent, PersonDetectedEvent } from '@/types/security';
 
 type SocketCallback = (...args: never[]) => void;
 
+export type StreamRole = 'detect' | 'record' | 'live';
+
+export interface StreamRequestPayload {
+  cameraId: string;
+  role: StreamRole;
+  frames: boolean;
+}
+
+/**
+ * The payload sent for `requestStream`, in one place so a reconnect replay
+ * cannot drop the `frames` flag and silently re-enable the JPEG relay.
+ */
+export const streamRequestPayload = (
+  cameraId: string,
+  role: StreamRole = 'live',
+  frames = true,
+): StreamRequestPayload => ({ cameraId, role, frames });
+
 class SocketService {
   private socket: Socket | null = null;
   private callbacks = new Map<string, Set<SocketCallback>>();
   private connecting = false;
   private connectPromise: Promise<void> | null = null;
-  private requestedStreams = new Set<string>();
+  private requestedStreams = new Map<string, StreamRequestPayload>();
   private visibilityHandler: (() => void) | null = null;
 
   constructor() {
@@ -55,9 +73,8 @@ class SocketService {
             socket.on(event, callback as never);
           });
         });
-        this.requestedStreams.forEach((streamKey) => {
-          const [cameraId, role] = streamKey.split('-');
-          if (cameraId && role) socket.emit('requestStream', { cameraId, role });
+        this.requestedStreams.forEach((payload) => {
+          socket.emit('requestStream', payload);
         });
         resolve();
       };
@@ -86,17 +103,13 @@ class SocketService {
     socket?.disconnect();
   }
 
-  requestStream(
-    cameraId: string,
-    role: 'detect' | 'record' | 'live' = 'live',
-    options: { frames?: boolean } = {},
-  ) {
-    const key = `${cameraId}-${role}`;
-    this.requestedStreams.add(key);
-    this.socket?.emit('requestStream', { cameraId, role, frames: options.frames ?? true });
+  requestStream(cameraId: string, role: StreamRole = 'live', options: { frames?: boolean } = {}) {
+    const payload = streamRequestPayload(cameraId, role, options.frames ?? true);
+    this.requestedStreams.set(`${cameraId}-${role}`, payload);
+    this.socket?.emit('requestStream', payload);
   }
 
-  stopStream(cameraId: string, role: 'detect' | 'record' | 'live' = 'live') {
+  stopStream(cameraId: string, role: StreamRole = 'live') {
     this.requestedStreams.delete(`${cameraId}-${role}`);
     this.socket?.emit('stopStream', { cameraId, role });
   }

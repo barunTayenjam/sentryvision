@@ -94,6 +94,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibilityRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failureCountRef = useRef<number>(0);
   const connectionAttemptsRef = useRef<number>(0);
   const lastConnectionAttemptRef = useRef<number>(0);
@@ -644,6 +645,12 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
 
   const handleStreamStart = useCallback(async () => {
     if (streamActionRef.current === 'start') return;
+    // A hidden tab must not consume data. The teardown below sets the state
+    // that would otherwise re-trigger an auto-start seconds later.
+    if (typeof document !== 'undefined' && document.hidden) {
+      camLog(`[CameraStream:${camera.name}] Start skipped: tab is hidden`);
+      return;
+    }
 
     camLog(`[CameraStream:${camera.name}] Starting stream`);
     setError(null);
@@ -823,6 +830,11 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   useEffect(() => {
     if (hqPrevRef.current === hqActive) return;
     hqPrevRef.current = hqActive;
+    if (typeof document !== 'undefined' && document.hidden) {
+      // Hidden tabs aren't streaming; the visibility handler picks up the new
+      // tier when the tab returns.
+      return;
+    }
     camLog(`[CameraStream:${camera.name}] Tier changed (hq=${hqActive}), reconnecting`);
     handleStreamRestart();
   }, [hqActive, camera.name, handleStreamRestart]);
@@ -857,6 +869,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     let mountTimer: ReturnType<typeof setTimeout> | null = null;
 
     const maybeStart = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       if (
         autoStart &&
         socketConnected &&
@@ -917,55 +930,78 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   }, [isStreaming, socketConnected]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const clearTimers = () => {
       if (visibilityDebounceRef.current) {
         clearTimeout(visibilityDebounceRef.current);
+        visibilityDebounceRef.current = null;
       }
       if (hideStopTimerRef.current) {
         clearTimeout(hideStopTimerRef.current);
         hideStopTimerRef.current = null;
       }
+      if (visibilityRetryRef.current) {
+        clearTimeout(visibilityRetryRef.current);
+        visibilityRetryRef.current = null;
+      }
+    };
 
-      // Hidden: stop pulling data once the grace period expires. This is the
-      // biggest single data saver on both LAN and WAN — a forgotten tab used
-      // to stream at full bitrate indefinitely.
+    // Hidden: stop pulling data once the grace period expires. This is the
+    // biggest single data saver on both LAN and WAN — a forgotten tab used
+    // to stream at full bitrate indefinitely.
+    const armHiddenStop = () => {
+      if (hideStopTimerRef.current) clearTimeout(hideStopTimerRef.current);
+      hideStopTimerRef.current = setTimeout(() => {
+        hideStopTimerRef.current = null;
+        if (!document.hidden) return;
+        camLog(
+          `[CameraStream:${camera.name}] Tab hidden for ${HIDDEN_GRACE_MS}ms, stopping stream`,
+        );
+        streamActionRef.current = null;
+        handleStreamStopRef.current();
+      }, HIDDEN_GRACE_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      clearTimers();
       if (document.hidden) {
-        hideStopTimerRef.current = setTimeout(() => {
-          hideStopTimerRef.current = null;
-          if (!document.hidden) return;
-          camLog(
-            `[CameraStream:${camera.name}] Tab hidden for ${HIDDEN_GRACE_MS}ms, stopping stream`,
-          );
-          streamActionRef.current = null;
-          handleStreamStopRef.current();
-        }, HIDDEN_GRACE_MS);
+        armHiddenStop();
         return;
       }
 
       visibilityDebounceRef.current = setTimeout(() => {
-        if (!document.hidden && socketConnected && autoStart) {
-          const isVideoPlaying =
-            videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3;
-          const isStalled = Date.now() - lastVideoTimeUpdateRef.current > STALL_THRESHOLD_MS;
+        if (document.hidden || !socketConnected || !autoStart) return;
+        const isVideoPlaying =
+          videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3;
+        const isStalled = Date.now() - lastVideoTimeUpdateRef.current > STALL_THRESHOLD_MS;
 
-          if (!isStreaming || connectionState !== 'connected' || !isVideoPlaying || isStalled) {
-            camLog(
-              `[CameraStream:${camera.name}] Tab became visible and stream needs restart.`,
-              {
-                isStreaming,
-                connectionState,
-                isVideoPlaying,
-                isStalled,
-              },
-            );
+        if (!isStreaming || connectionState !== 'connected' || !isVideoPlaying || isStalled) {
+          camLog(`[CameraStream:${camera.name}] Tab became visible and stream needs restart.`, {
+            isStreaming,
+            connectionState,
+            isVideoPlaying,
+            isStalled,
+          });
+          handleStreamRestart();
+          // A restart inside the cooldown is silently dropped, which leaves a
+          // black tile until the next watchdog tick. Retry once, past the
+          // cooldown, but only if no start actually ran.
+          visibilityRetryRef.current = setTimeout(() => {
+            visibilityRetryRef.current = null;
+            if (document.hidden) return;
+            if (streamActionRef.current === 'start') return;
+            camLog(`[CameraStream:${camera.name}] Retrying resume after suppressed restart`);
             handleStreamRestart();
-          } else {
-            // Just ensure it's playing
-            videoRef.current?.play().catch(() => {});
-          }
+          }, RESTART_COOLDOWN_MS + 2000);
+        } else {
+          videoRef.current?.play().catch(() => {});
         }
       }, VISIBILITY_DEBOUNCE_MS);
     };
+
+    // Re-arm on every run: an effect re-run (socket reconnect, state change)
+    // tears the timer down in cleanup, and a tab that hid before that would
+    // otherwise never be stopped.
+    if (typeof document !== 'undefined' && document.hidden) armHiddenStop();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
@@ -973,13 +1009,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
-      if (visibilityDebounceRef.current) {
-        clearTimeout(visibilityDebounceRef.current);
-      }
-      if (hideStopTimerRef.current) {
-        clearTimeout(hideStopTimerRef.current);
-        hideStopTimerRef.current = null;
-      }
+      clearTimers();
     };
   }, [
     socketConnected,
