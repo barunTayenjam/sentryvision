@@ -24,6 +24,8 @@ function LiveCameraTile({
     isStreaming,
     isWanStream,
     isMuted,
+    hqActive,
+    activateHq,
     connectionState,
     error: streamError,
     handlePointerDown,
@@ -92,6 +94,24 @@ function LiveCameraTile({
           <p className="font-mono text-[10px] text-white/60">{camera.status} · {camera.resolution || 'live'}</p>
         </div>
       </div>
+      {focused && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            activateHq();
+          }}
+          aria-pressed={hqActive}
+          aria-label={
+            hqActive
+              ? 'Full quality active for 60 seconds'
+              : 'View this camera at full quality for 60 seconds'
+          }
+          className="absolute right-3 top-3 z-20 rounded-md border border-white/15 bg-black/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wide text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 aria-pressed:text-emerald-300"
+        >
+          {hqActive ? 'HD 60s…' : 'HD 60s'}
+        </button>
+      )}
     </motion.div>
   );
 }
