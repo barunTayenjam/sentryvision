@@ -93,6 +93,7 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
   const restartCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failureCountRef = useRef<number>(0);
   const connectionAttemptsRef = useRef<number>(0);
   const lastConnectionAttemptRef = useRef<number>(0);
@@ -114,6 +115,9 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
 
   const RESTART_COOLDOWN_MS = 5000;
   const VISIBILITY_DEBOUNCE_MS = 1000;
+  // A hidden tab used to keep pulling the full stream forever. Grace period
+  // keeps quick tab-switches from tearing down and rebuilding the pipeline.
+  const HIDDEN_GRACE_MS = 30000;
   const MAX_FAILURE_COUNT = 3;
   const CONNECTION_RATE_LIMIT_MS = 3000;
   const MAX_CONNECTION_ATTEMPTS_PER_MINUTE = 10;
@@ -989,12 +993,29 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       if (visibilityDebounceRef.current) {
         clearTimeout(visibilityDebounceRef.current);
       }
+      if (hideStopTimerRef.current) {
+        clearTimeout(hideStopTimerRef.current);
+        hideStopTimerRef.current = null;
+      }
+
+      // Hidden: stop pulling data once the grace period expires. This is the
+      // biggest single data saver on both LAN and WAN — a forgotten tab used
+      // to stream at full bitrate indefinitely.
+      if (document.hidden) {
+        hideStopTimerRef.current = setTimeout(() => {
+          hideStopTimerRef.current = null;
+          if (!document.hidden) return;
+          camLog(
+            `[CameraStream:${camera.name}] Tab hidden for ${HIDDEN_GRACE_MS}ms, stopping stream`,
+          );
+          streamActionRef.current = null;
+          handleStreamStopRef.current();
+        }, HIDDEN_GRACE_MS);
+        return;
+      }
 
       visibilityDebounceRef.current = setTimeout(() => {
         if (!document.hidden && socketConnected && autoStart) {
-          if (isWanStream) {
-            return;
-          }
           const isVideoPlaying =
             videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3;
           const isStalled = Date.now() - lastVideoTimeUpdateRef.current > STALL_THRESHOLD_MS;
@@ -1027,6 +1048,10 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
       if (visibilityDebounceRef.current) {
         clearTimeout(visibilityDebounceRef.current);
       }
+      if (hideStopTimerRef.current) {
+        clearTimeout(hideStopTimerRef.current);
+        hideStopTimerRef.current = null;
+      }
     };
   }, [
     socketConnected,
@@ -1035,7 +1060,6 @@ export const useCameraStream = ({ camera, streamSrc, autoStart = true }: UseCame
     connectionState,
     handleStreamRestart,
     camera.name,
-    isWanStream,
   ]);
 
   useEffect(() => {
