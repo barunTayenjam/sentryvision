@@ -1,128 +1,177 @@
 # Full-repo review brief — SentryVision v1.7.2
 
-One file for a complete code-review pass of this repository. Canonical detailed
-docs: `AGENTS.md` (repo map + commands), `README.md`, `docs/ARCHITECTURE.md`,
-`docs/API-SOURCE-OF-TRUTH.md` (full endpoint inventory). This brief adds what
-those lack: review ordering, invariants, and current repo state.
+One file for a complete code-review pass. Canonical details: `AGENTS.md`,
+`README.md`, `docs/ARCHITECTURE.md`, `docs/API-SOURCE-OF-TRUTH.md`. This brief
+adds what those lack: review ordering, invariants (prose + executable), data
+sensitivity, exposure, and current repo state.
+
+## Deliverable format (read first)
+
+- **Report only — do not modify code.** Fixes are approved separately by the owner.
+- **Severity scale**: `Critical` (data loss / security hole / outage) ·
+  `High` (realistic risk or cost) · `Improvement` (worthwhile, not urgent) ·
+  `Optional` (style).
+- **Time budget**: one working session. Work areas in order; if time runs out,
+  stop and report coverage honestly — areas 1–4 matter more than 5–8.
+- **Findings template** (bottom of this file): one block per finding, with
+  file:line, severity, why it matters, and the concrete fix.
 
 ## What the system is
 
 Self-hosted home security: two RTSP cameras → go2rtc (sole RTSP client per
 camera) → Python OpenCV detection pipeline (MOG2 → YOLO → ByteTrack → ArcFace
-→ human verification) → Express 5 + TypeORM + Socket.io backend → PostgreSQL.
-Next.js 14 static export served by the backend. Live viewing via WebRTC/MSE at
-250 kbps per tile. Production, single-node Docker Compose, IST timezone.
+face recognition → human verification) → Express 5 + TypeORM + Socket.io
+backend → PostgreSQL. Next.js 14 static export served by the backend. Live
+viewing via WebRTC/MSE at 250 kbps per tile. Production, single-node Docker
+Compose, IST timezone. **Processes biometric data** (face embeddings) — see
+area 2.
 
 | Container | Port | Role |
 |---|---|---|
-| sentryvision-app | 9753 (public) | Express API + serves frontend `out/` + go2rtc proxy |
+| sentryvision-app | 9753, `0.0.0.0` (LAN) | Express API + serves frontend `out/` + go2rtc proxy |
 | sentryvision-opencv | 8084 HTTP / 9090 WS (internal) | Detection pipeline |
-| sentryvision-go2rtc | 1984 API (loopback) / 8555 WebRTC | RTSP bridge + transcodes |
-| sentryvision-postgres | 5432 (internal) | 44 tracked migrations (+1 untracked WIP) |
+| sentryvision-go2rtc | 1984 API (loopback) / 8555 (public UDP+TCP) | RTSP bridge + transcodes |
+| sentryvision-postgres | 5432 (internal) | 44 tracked migrations |
 | sentryvision-relations | 8085 (internal) | RelateAnything sidecar (numpy 2, isolated) |
+
+**Network exposure**: LAN on `0.0.0.0:9753`; internet via a cloudflared tunnel
+(`argus.tayenjam.dpdns.org`) terminating at the app; JWT-gated. WebRTC media
+(:8555) is LAN-only in practice (UDP can't cross the tunnel). No TLS on 9753
+itself — TLS ends at cloudflared.
 
 **Deploy model**: containers bind-mount the source. Python hot-mounts (edit +
 `docker restart`), Node runs from `server/dist` (compile + restart), frontend
 needs `npm run build` **then** restart — CSP inline-script hashes are collected
-from `frontend-next/out` at app startup; a stale allowlist = blank page.
+from `frontend-next/out` at startup; a stale allowlist = blank page (see
+Recommendations).
 
-## Repo map (LOC, file counts)
+## Repo map
 
 | Area | LOC | Contents |
 |---|---|---|
 | `server/src` | 35 387 | 13 controllers, 30 route files, 49 services, 27 models, middleware, cron |
 | `frontend-next/src` | 16 638 | 12 views, 8 app pages, 44 components, 10 hooks, 4 zustand stores |
 | `opencv-service` | 12 560 | 37 modules: `app.py` (Flask entry), `rtsp_ingestion/`, detection chain |
-| `database/migrations` | 1 930 | 44 tracked SQL migrations (046 is untracked WIP) |
-| `scripts/` | 3 149 | health, backup, deploy, reconciliation |
-| `e2e/` | — | Playwright tests against a live :9753 (uses `tester` DB account) |
+| `database/migrations` | 1 930 | **44 tracked: 001–034 and 036–045 — there is no 035** (historical gap, not a defect; don't "fix" the numbering). `046_create_face_clusters.sql` is untracked owner WIP. |
+| `scripts/` | 3 149 | health, backup, deploy, reconciliation, `check-invariants.sh` |
+| `e2e/` | — | Playwright tests against live :9753 (`tester` DB account) |
 
 ## Entry points / lifecycles
 
-- **HTTP**: `server/src/index.ts` → routes (`routes/index.ts` mounts `/api/*`)
-  → controller → service → TypeORM. Validation: Zod (`middleware/validation.ts`).
+- **HTTP**: `server/src/index.ts` → `routes/index.ts` mounts `/api/*` →
+  controller → service → TypeORM. Validation: Zod (`middleware/validation.ts`).
 - **Boot**: `bootstrap.ts` → `initializers/{database,services,cron}.ts`.
 - **Socket.io**: `streams/rtspManager.ts` — viewer rooms, `frameRoomFor()`
   opt-out, python frame relay. Events: `requestStream`/`stopStream`/`frame`/
   `motionDetected`/`eventCreated`/`personDetected`/`faceDetected`.
-- **Detection**: opencv `rtsp_ingestion/` (FFmpegReader 640×360@5fps) →
-  MotionGate → InProcessYOLO → ByteTracker → IdentityEnrichment →
-  HumanVerifier → WebSocketPublisher → Node `PythonWsClient` →
-  `pipeline/detectionPersistence.ts` → `events` table. Full chain: AGENTS.md.
+- **Detection**: opencv `rtsp_ingestion/` (FFmpegReader 640×360@5fps from
+  go2rtc re-stream) → MotionGate → InProcessYOLO → ByteTracker →
+  IdentityEnrichment (ArcFace) → HumanVerifier → WebSocketPublisher → Node
+  `PythonWsClient` → `pipeline/detectionPersistence.ts` → `events` table.
 - **Frontend**: `frontend-next/src/app/` (App Router), views in `src/views/`,
-  API clients in `src/services/api/baseClient.ts` (auth headers, refresh,
-  retry), state in `src/stores/` (ADR-001).
+  API clients in `src/services/api/baseClient.ts`, state in `src/stores/`.
 
 ## Review areas, ordered by risk
 
-### 1. Auth & security surface (highest blast radius)
+### 1. Auth, tokens, and exposure surface
 
 `server/src/auth/`, `middleware/{auth,enhancedRateLimit,go2rtcAuth}.ts`,
-`controllers/AuthController.ts` (login/register/MFA), `docs/SECURITY.md`.
-Check: JWT access/refresh rotation, session + password-history enforcement,
-rate-limit keying (per-IP vs per-account), go2rtc token gate (media URLs carry
-`?token=` — verify they can't leak into logs), audit logging on sensitive ops.
+`AuthController.ts`, `docs/SECURITY.md`. Check: JWT access/refresh rotation,
+MFA, session + password-history enforcement, rate-limit keying (per-IP vs
+per-account — the app sits behind cloudflared, so per-IP may collapse to the
+tunnel's IP). **`?token=` media URLs** (`go2rtcAuth.ts`, `withMediaToken()` in
+`useCameraStream.ts`): review lifetime, scope, leak paths — server logs, Referer
+headers, browser history, anything cached. Long-lived tokens in URLs are the
+known weak spot; short-lived per-stream tokens are the fix if warranted.
 
-### 2. Detection pipeline (most churn: 81 file touches / 90 days)
+### 2. Biometric data (most sensitive data in the system)
 
-`opencv-service/` — verify the contract chain still holds: motion gate before
-YOLO, verifier tiers (YOLO ≥0.90 → face → pose, floor 0.55), person
-persistence gate lives in **Node** (`PERSON_MIN_TRACK_HITS=3`, confidence
-0.55), bbox space = image pixels (`bboxSpace: 'image'`), `persons_detected`
-dedupes IoU>0.3 and drops `lost` tracks. Model fallback chain
-(v8s QAT → v8n → v5n → v4-tiny) must warn, never crash. Tests:
-`opencv-service/tests/`.
+`server/src/models/FaceEmbedding.ts`, face-cluster services, migration 046
+(WIP), `opencv-service/arcface_recognizer.py`, `cluster_and_populate.py`.
+Check: encryption at rest (camera credentials get `credentialEncryption.ts`;
+nothing similar is visible for embeddings — verify), retention policy coverage
+(`retentionPolicyService.ts` — are embeddings and clusters ever purged?),
+deletion on request (is there a path that removes an identity end-to-end?),
+and whether `scripts/backup.sh` includes them (it backs up DB + files — so
+backups carry biometric data wherever they're stored).
 
-### 3. Event persistence + RAG/chat
+### 3. Data leaving the house
 
-`pipeline/detectionPersistence.ts`, `services/eventSearchService.ts`,
-`services/chat/`, `services/nvidia/`, `services/detection/`. Recent rework:
-semantic search + event-grounded RAG (Wave 1+2), JEV threat pre-filter.
-Check: no fabricated attributes in answers (v1.7.1 removed several — don't
-let them back), event images written before DB rows or reconciled, retention
-service can't delete rows whose files are referenced.
+`services/nvidia/`, `services/chat/` (RAG), `nvidiaAnalysisService.ts`.
+Verified config: `NVIDIA_API_BASE_URL=http://192.168.31.99:20128/v1` — a **LAN
+gateway (9router)**, not the public NVIDIA API. `OLLAMA_BASE_URL` overrides to
+local inference when set. So: what leaves the network depends on the gateway's
+upstream routing — confirm which model IDs route to cloud providers, and what
+payloads (event images? captions? embeddings?) they carry. Also review
+**prompt-injection handling** for event-derived text (camera-visible text,
+object labels) fed to the LLM, and that the chat/RAG answers are
+event-grounded (v1.7.1 removed fabricated attributes — don't let them return).
 
-### 4. Streaming — ALREADY REVIEWED 2026-11-06
+### 4. Detection pipeline (highest churn: 81 file touches / 90 days)
 
-Read `docs/REVIEW-2026-11-06-cheap-stream-profile.md` for that slice
-(250 kbps profile, HD burst, hidden-tab teardown, `frames:false`).
-Do not re-derive its fixed findings; its "deferred minors" list is accepted.
+`opencv-service/`. Verify the contract chain: motion gate before YOLO,
+verifier tiers (YOLO ≥0.90 → face → pose, floor 0.55), person persistence gate
+in **Node** (`PERSON_MIN_TRACK_HITS=3`, confidence 0.55), bbox space = image
+pixels (`bboxSpace: 'image'`), `persons_detected` dedupes IoU>0.3 and drops
+`lost` tracks. Model fallback chain (v8s QAT → v8n → v5n → v4-tiny) must warn,
+never crash. **Note**: three files in this area have uncommitted owner WIP —
+review the **committed version** (`git show HEAD:opencv-service/<file>`);
+the working-tree diffs belong to in-progress face-clustering work, out of scope.
 
-### 5. Frontend correctness
+### 5. Streaming — already reviewed 2026-11-06
 
-Zustand stores (4), `hooks/useCameraStream.ts` (complex — rate limits,
+Read `docs/REVIEW-2026-11-06-cheap-stream-profile.md` (250 kbps profile, HD
+burst, hidden-tab teardown, `frames:false`). Do not re-derive its fixed
+findings; its "deferred minors" are accepted.
+
+### 6. Backup and restore
+
+`scripts/backup.sh` (DB + files) — **no restore procedure exists or has been
+tested**; that gap is itself a finding. Check: backup encryption, retention of
+backup copies, and whether a restore rehearsal is feasible from the artifacts
+the script produces.
+
+### 7. Frontend correctness
+
+Zustand stores (4), `hooks/useCameraStream.ts` (complex: rate limits,
 visibility state machine), `views/EventsPage.tsx` (known exhaustive-deps
 warnings are pre-existing). Check: no secret in client bundle, `baseClient`
-refresh loop terminates, legacy-only routes (`/app/*`) vs canonical routes.
+refresh loop terminates, legacy `/app/*` routes vs canonical.
 
-### 6. Data, migrations, retention
+### 8. Data, migrations, cron
 
-44 tracked migrations — check idempotency (a 45th, `046_create_face_clusters.sql`,
-is owner WIP, not reviewed). `utils/cronJobs.ts` +
-`retentionPolicyService.ts` + `automatedCleanupService.ts`: cron jobs must be
-idempotent (restart-safe) since the container restarts on every deploy.
+44 tracked migrations — idempotency (restarts re-run boot; a re-run migration
+must not corrupt). `utils/cronJobs.ts` + retention + cleanup services: cron
+jobs must be restart-safe (see Recommendations — advisory locks).
 
-## Cross-cutting invariants
+## Invariants — executable + prose
 
-1. Cameras must see exactly **one** RTSP client (go2rtc). No code path may
-   open a second camera connection — everything reads go2rtc's re-stream.
-2. The 24/7 detection transcode (`cam*_low`, 720p/10fps/1500k) must never be
-   starved by viewer load (cheap transcodes spawn per viewer, despawn idle).
-3. No browser path may reach the 1440p main stream.
-4. Secrets only via `.env` / `server/cameras.json` (gitignored). Check nothing
-   inlined them historically (`docs/CONTRIBUTING.md` references filter-repo).
-5. Detection runs **in Python**; Node's `consolidatedDetectionService`
-   `detectObjects`/`detectFaces` are disabled guards that throw — by design.
-6. Uncommitted owner WIP exists (see below) — never `git add -A`.
+Run `bash scripts/check-invariants.sh` (all four PASS as of 2026-11-06):
+
+1. **No stray `rtsp://` consumer in source** (go2rtc is the sole RTSP client).
+2. **`h264_low` detection profile pinned** (720p/10fps/1500k).
+3. **`h264_cheap` viewer profile present** (640×360, 250k cap).
+4. **Runtime**: cameras see only go2rtc, ≤1 connection each; no other
+   container touches port 554.
+
+Prose invariants (not yet scripted):
+
+5. The 24/7 detection transcode must never be starved by viewer load.
+6. No browser path may reach the 1440p main stream.
+7. Detection runs **in Python**; Node's `detectObjects`/`detectFaces` are
+   disabled guards that throw — by design.
+8. Secrets only via `.env` / `server/cameras.json` (gitignored).
+9. Never `git add -A` — owner WIP is present (below).
 
 ## Current repo state (2026-11-06)
 
-- `main` @ `250de0c`. Last merged: cheap stream profile (`bc158cf`).
-- **Uncommitted owner WIP — out of scope, do not touch or commit**:
+- `main` @ HEAD. Last merged: cheap stream profile + docs.
+- **Uncommitted owner WIP — do not touch, commit, or review the diffs**:
   `docker-compose.yml`, `opencv-service/{arcface_recognizer,cluster_and_populate}.py`,
   `opencv-service/rtsp_ingestion/frame_pipeline.py`, untracked
   `database/migrations/046_create_face_clusters.sql`,
   `opencv-service/face_clustering.json`, `opencv-service/tests/test_arcface_cosine.py`.
+  Where WIP files overlap review areas, review the committed version only.
 - Accepted deferred minors (streaming): stale "browser canvas" error copy,
   dead `isWanStream` state, latent `streamSrc ?? camera.id` 1440p path,
   `activateHq` can't extend a burst, no fallback for missing `_cheap` stream.
@@ -132,18 +181,42 @@ idempotent (restart-safe) since the container restarts on every deploy.
 ## Verification commands
 
 ```bash
-cd frontend-next && npm run typecheck && npm run lint && npx vitest run   # 33/33; 0 lint errors expected
-cd server && node --experimental-vm-modules node_modules/.bin/jest        # 515/515 — plain npx jest FAILS on ESM
-cd server && npx tsc --noEmit -p tsconfig.json                            # server typecheck
-# Python suite: host and container have no pytest — run in a throwaway container
-# (documented in docs/OPENCV-SERVICE.md; 136 pytest tests):
+bash scripts/check-invariants.sh                                              # invariants above
+cd frontend-next && npm run typecheck && npm run lint && npx vitest run      # all pass; 0 lint errors expected
+cd server && node --experimental-vm-modules node_modules/.bin/jest           # all pass — plain npx jest FAILS on ESM
+cd server && npx tsc --noEmit -p tsconfig.json
+# Python suite (host and container have no pytest — documented in docs/OPENCV-SERVICE.md):
 docker run --rm -v $(pwd)/opencv-service:/app:ro -w /app sentryvision-opencv:latest \
   sh -c "pip install -q pytest pytest-asyncio && python -m pytest tests -q"
-# E2E (Playwright, uses the 'tester' DB account) — see e2e/*.test.ts
-npm run build && npm run build:server                                     # deploy build (then docker restart sentryvision-app)
-docker ps --format '{{.Names}}\t{{.Status}}' | grep sentryvision          # all healthy
-curl -s http://127.0.0.1:1984/api/streams | python3 -m json.tool          # stream/consumer state
+npm run build && npm run build:server                                        # then docker restart sentryvision-app
+docker ps --format '{{.Names}}\t{{.Status}}' | grep sentryvision
+curl -s http://127.0.0.1:1984/api/streams | python3 -m json.tool
 ```
 
 Data: `docker exec sentryvision-postgres psql -U sentryvision -d sentryvision`.
 Logs: `docker logs sentryvision-{app,opencv,go2rtc} --since 5m`.
+
+## Recorded recommendations (not blockers — owner decides)
+
+1. **CSP hash fragility**: compute allowlist at build time, or fail the
+   healthcheck loudly when `out/` and the allowlist disagree.
+2. **Jest ESM flag**: put it in an npm script so `npx jest` stops being tribal
+   knowledge.
+3. **pytest**: bake it into a test image instead of pip-installing per run.
+4. **Cron restart-safety**: a job-run table or Postgres advisory locks, rather
+   than relying on each job being incidentally idempotent.
+5. **Lint ratchet**: enforce "no new warnings" so the known list can't grow.
+6. **Deploy provenance**: deploy script logs commit SHA + dirty state, since
+   bind-mounted source makes "what's running" fuzzy.
+7. **Media tokens**: short-lived, per-stream scoped tokens instead of the
+   long-lived JWT in `?token=`.
+
+## Findings template (copy per finding)
+
+```markdown
+### [Severity] <one-line title>
+- **Where**: <file>:<line>
+- **What**: <the defect or risk>
+- **Why it matters**: <impact on a person using this system>
+- **Fix**: <concrete change>
+```
